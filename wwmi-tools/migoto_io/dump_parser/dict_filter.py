@@ -65,7 +65,7 @@ class DictFilter:
             for dictionary in filter.dictionaries:
                 if isinstance(dictionary, Filter) or len(dictionary) == 0:
                     continue
-
+                # 第一个ResourceDescriptor
                 first_dict_entry = next(iter(dictionary.values()))
 
                 for attribute, values in filter.attributes.items():
@@ -74,16 +74,16 @@ class DictFilter:
 
                     if attribute_name.startswith('!'):
                         attribute_name = attribute_name[1:]
-
                     try:
+                        # 第一个<ResourceDescriptor>的[<ShaderRef>]
                         attr = operator.attrgetter(attribute_name)(first_dict_entry)
                     except Exception:
                         raise ValueError(f'Invalid filter: data_dict member has no "{parts[0]}" attribute!')
-
+                    # ['shaders', 'type']
                     if len(parts) == 2:
                         if not isinstance(attr, Union[list, dict]):
                             raise ValueError(f'Invalid filter: {attribute} is not iterable!')
-
+                        # 'type'
                         attribute_name = parts[1]
 
                         if attribute_name.startswith('!'):
@@ -97,22 +97,25 @@ class DictFilter:
                                 raise ValueError(f'Invalid filter: {attribute} member has no "{attribute_name}" attribute!')
                     elif len(parts) > 2:
                         raise ValueError(f'Invalid filter: more than one instance of ":" is not supported!')
-
+                    # 不是列表就变成列表
                     if not isinstance(values, list):
                         filter.attributes[attribute] = [values]
 
         return filter
 
-    def intersection(self, list1, list2):
-        return [value for value in list1 if value in list2]
+    # def intersection(self, list1, list2):
+    #     return [value for value in list1 if value in list2]
 
+    def intersection(self, keys1, keys2): # 交集
+        return set(keys1) & set(keys2)
+    
     def get_filtered_dict(self, filter, data_dict=None):
         result = {}
 
         # Optional usage of self.dict allows to compare external dict against default nested-filtered one
         if data_dict is None:
             # Build a list of external dicts and dicts resulting from nested filters
-            dictionaries = []
+            dictionaries = [] # 将filter.dictionaries列表中的字典取交集/并集
             for dictionary in filter.dictionaries:
                 if isinstance(dictionary, Filter):
                     dictionary = self.get_filtered_dict(dictionary)
@@ -120,8 +123,9 @@ class DictFilter:
             # Apply dictionaries filter condition
             found = {}
             if filter.dictionaries_condition == FilterCondition.AND:
+                # found = self.intersect_dicts(*dictionaries)
                 found = dictionaries[0]
-                for i in range(1, len(dictionaries)):
+                for i in range(1, len(dictionaries)): # 交集字典
                     found = {key: found[key] for key in self.intersection(dictionaries[i].keys(), found.keys())}
             elif filter.dictionaries_condition == FilterCondition.OR:
                 for dictionary in dictionaries:
@@ -146,20 +150,20 @@ class DictFilter:
         # Filter by attributes of entries
         if filter.attributes_condition:
             dictionaries = []
-            for filter_attribute, filter_values in filter.attributes.items():
+            for filter_attribute, filter_values in filter.attributes.items(): # 遍历每个过滤条件
                 dictionary = {}
-                for dict_key, dict_entry in data_dict.items():
+                for dict_key, dict_entry in data_dict.items(): # 遍历资源对象
 
-                    parts = filter_attribute.split(':')
+                    parts = filter_attribute.split(':') # 如['shaders', 'type']
 
-                    attribute_name = parts[0]
+                    attribute_name = parts[0] # 'shaders'
 
                     # If attribute name has '!' prefix, search for values that aren't in 'filter_values'
                     must_contain_value = True
                     if attribute_name.startswith('!'):
                         must_contain_value = False
                         attribute_name = attribute_name[1:]
-
+                    # 提取<ResourceDescriptor>的shaders属性
                     attribute_value = operator.attrgetter(attribute_name)(dict_entry)
 
                     if len(parts) == 1:
@@ -167,12 +171,12 @@ class DictFilter:
                         if self.has_value(must_contain_value, attribute_value, filter_values):
                             dictionary[dict_key] = dict_entry
 
-                    elif len(parts) == 2:
+                    elif len(parts) == 2: # ['shaders', 'type']
                         # Check if any value in dict-type object's attribute is among 'filter_values' we're looking for
                         detected = False
                         for key, value in attribute_value.items() if isinstance(attribute_value, dict) else enumerate(attribute_value):
 
-                            filter_attribute_name = parts[1]
+                            filter_attribute_name = parts[1] # 'type'
 
                             # If attribute name has '!' prefix, search for values that aren't in 'filter_values'
                             must_contain_value = True
@@ -187,17 +191,18 @@ class DictFilter:
                                     break
                             else:
                                 # Search by attribute of object contained in dict value
-                                value_attribute = operator.attrgetter(filter_attribute_name)(value)
+                                value_attribute = operator.attrgetter(filter_attribute_name)(value) # 提取<ShaderRef>.type
                                 if self.has_value(must_contain_value, value_attribute, filter_values):
                                     detected = True
                                     break
 
-                        if detected:
+                        if detected: # 提取 <ResourceDescriptor>
                             dictionary[dict_key] = dict_entry
 
                 dictionaries.append(dictionary)
 
             if filter.condition == FilterCondition.AND:
+                # found = self.intersect_dicts(*dictionaries)
                 found = dictionaries[0]
                 for i in range(1, len(dictionaries)):
                     found = {key: found[key] for key in self.intersection(dictionaries[i].keys(), found.keys())}
