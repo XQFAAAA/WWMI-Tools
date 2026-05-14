@@ -67,7 +67,7 @@ class DataExtractor:
         self.draw_data = {}
 
         self.handle_shapekey_cs_0(list(self.call_branches.values()))
-        self.handle_static_draw_vs(list(self.call_branches.values()))
+        self.handle_draw_vs(list(self.call_branches.values()))
 
     def handle_shapekey_cs_0(self, call_branches):
         for call_branch in call_branches:
@@ -140,15 +140,14 @@ class DataExtractor:
                 raise ValueError(f'No outputs for shader {call_branch.shader_id}')
             # We don't need any data from this call as well, lets just ensure that it's here
 
-    def handle_static_draw_vs(self, call_branches):
-        for call_branch in call_branches:
-            if call_branch.shader_id == 'DRAW_VS':
-                self.handle_draw_vs(call_branches, 'DRAW_VS')
+    # def handle_static_draw_vs(self, call_branches):
+    #     for call_branch in call_branches:
+    #         if call_branch.shader_id == 'DRAW_VS':
+    #             self.handle_draw_vs(call_branches)
 
-    def handle_draw_vs(self, call_branches, daw_vs_tag):
+    def handle_draw_vs(self, call_branches):
         for call_branch in call_branches:
-
-            if call_branch.shader_id != daw_vs_tag:
+            if call_branch.shader_id != 'DRAW_VS':
                 continue
 
             for branch_call in call_branch.calls:
