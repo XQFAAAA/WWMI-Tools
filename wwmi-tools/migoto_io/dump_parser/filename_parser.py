@@ -174,9 +174,9 @@ class ResourceDescriptor:
         is_unloaded = self.data.bytes is None
         if is_unloaded:
             self.data.load()
-        data_bytes = self.data.bytes
+        data_bytes = self.data.bytes # data_bytes指向bytearray对象
         if is_unloaded:
-            self.data.unload()
+            self.data.unload() # self.data.bytes = None,data_bytes不变
         return data_bytes
     
     def get_slot(self):

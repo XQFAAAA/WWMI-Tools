@@ -773,12 +773,12 @@ class ByteBuffer:
         result = {}
         for semantic in self.layout.semantics:
             result[semantic] = len(self.data[semantic]) / semantic.stride
-        if min(result.values()) != max(result.values()):
+        if min(result.values()) != max(result.values()): # 各个semantic的元素数量必须一致
             result = ', '.join([f'{k.abstract}: {v}' for k, v in result.items()])
             raise ValueError(f'elements count mismatch in buffers: {result}')
-        if len(self.layout.semantics) != len(self.data):
+        if len(self.layout.semantics) != len(self.data): # semantic个数和data字典数量必须一致
             raise ValueError(f'data structure must match buffer layout!')
-        self.num_elements = int(min(result.values()))
+        self.num_elements = int(min(result.values())) # 元素数量，一个元素是一组的semantic读取出的字节数组
 
     def update_layout(self, layout):
         self.layout = layout
@@ -786,25 +786,25 @@ class ByteBuffer:
             self.validate()
 
     def from_bytes(self, data_bytes):
-        if self.layout.force_stride:
+        if self.layout.force_stride: # 如果有强制stride，需要填充字节数组
             data_bytes.extend(bytearray((math.ceil(len(data_bytes) / self.layout.stride)) * self.layout.stride - len(data_bytes)))
-
+        # layout.stride创建实例时自动计算为BufferSemantic.stride的累加
         num_elements = len(data_bytes) / self.layout.stride
-        if num_elements % 1 != 0:
+        if num_elements % 1 != 0: # 应该刚好分配完
             raise ValueError(f'buffer stride {self.layout.stride} must be multiplier of bytes len {len(data_bytes)}')
         num_elements = int(num_elements)
 
         self.data = {}
         for semantic in self.layout.semantics:
-            self.data[semantic] = bytearray()
-
+            self.data[semantic] = bytearray() # 为每个semantic创建空bytearray
+        # 按各semantic stride分配字节数组
         byte_offset = 0
         for element_id in range(num_elements):
             for semantic in self.layout.semantics:
                 self.data[semantic].extend(data_bytes[byte_offset:byte_offset+semantic.stride])
                 byte_offset += semantic.stride
 
-        if byte_offset != len(data_bytes):
+        if byte_offset != len(data_bytes): # 应该刚好分配完
             raise ValueError(f'layout mismatch: input ended at {byte_offset} instead of {len(data_bytes)}')
 
         self.validate()

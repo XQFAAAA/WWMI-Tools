@@ -18,7 +18,7 @@ class Dump:
     calls: Dict[str, CallDescriptor] = field(init=False)
 
     def __post_init__(self):
-        self.log = FrameDumpLog(self.dump_directory)
+        self.log = FrameDumpLog(self.dump_directory) # 找出每个call的Dispatch或DrawIndexed
         self.resources = {}
         self.calls = {}
 

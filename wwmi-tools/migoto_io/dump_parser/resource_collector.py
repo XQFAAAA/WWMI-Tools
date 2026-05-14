@@ -55,7 +55,7 @@ class ResourceCollector:
             filter_attributes['slot_id'] = source.slot_id
         if source.shader_type != ShaderType.Empty:
             filter_attributes['slot_shader_type'] = source.shader_type
-
+        # 过滤出call中符合条件的资源
         resource = branch_call.call.get_filtered_resource(filter_attributes)
 
         if resource is None:
@@ -69,17 +69,17 @@ class ResourceCollector:
             # Contents of .buf IB isn't always accurate, so it can make sense to use .txt instead
             if source.slot_type == SlotType.IndexBuffer and source.file_ext == 'txt':
                 txt_path = resource.path.replace('.buf', '.txt')
-                resource = ResourceDescriptor(txt_path)
-
-            cache_id = (resource.get_sha256(), layout.to_string())
-
+                resource = ResourceDescriptor(txt_path) # 替换为txt
+            
+            cache_id = (resource.get_sha256(), layout.to_string()) # 计算sha256作为键
+            # 缓存中没有相同资源且布局也不同，才读取文件
             cached_resource = self.cache.get(cache_id, None)
-
+            
             if cached_resource is None:
                 if source.slot_type == SlotType.IndexBuffer and source.file_ext == 'txt':
-                    with open(resource.path, 'r') as f:
+                    with open(resource.path, 'r') as f: # 读取txt文件内容
                         resource = IndexBuffer(layout, f)
-                else:
+                else: # 传入二进制布局和字节数组
                     resource = ByteBuffer(layout, resource.get_bytes())
 
                 self.cache[cache_id] = resource
