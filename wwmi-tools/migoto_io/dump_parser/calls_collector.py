@@ -57,25 +57,25 @@ class CallsCollector:
 
     def get_call_branches(self):
         call_branches = {}
-
+        # ['SHAPEKEY_CS_0', 'DRAW_VS']
         root_shaders = self.get_root_shaders(self.shader_data_pattern)
 
-        for shader_id in root_shaders:
+        for shader_id in root_shaders: # 如['SHAPEKEY_CS_0', 'DRAW_VS']
 
             shader_map = self.shader_data_pattern[shader_id]
 
             branch = ShaderCallBranch(shader_id=shader_id, calls=[], nested_branches=[])
 
-            for output_slot in shader_map.outputs:
+            for output_slot in shader_map.outputs: # 遍历outputs，通常只有1个
 
                 root_shader_resource_candidates = self.get_all_slot_resources(shader_map.shader_type, output_slot)
 
                 output_hashes = []
-
+                # 遍历u0cs的所有资源对象
                 for resource_raw, root_resource in root_shader_resource_candidates.items():
 
                     # Quick hack to allow short-cirquit shader on itself
-                    if output_slot.shader_id == shader_id:
+                    if output_slot.shader_id == shader_id: # DRAW_VS
 
                         for input_slot in shader_map.inputs:
                             if input_slot.shader_id != shader_id:
@@ -119,7 +119,7 @@ class CallsCollector:
         shader_map = shader_data_pattern[shader_id]
 
         input_slot = None
-        for mapped_input_slot in shader_map.inputs:
+        for mapped_input_slot in shader_map.inputs: # 选取输入节点和父节点的shader_id相同的节点，输入可能有多个但通常只有一个节点
             if parent_shader_id == mapped_input_slot.shader_id:
                 input_slot = mapped_input_slot
         if input_slot is None:
@@ -142,18 +142,18 @@ class CallsCollector:
 
         for _, input_candidate_resource in input_candidate_resources.items():
             if int(input_candidate_resource.call_id) < int(parent_resource.call_id):
-                continue
+                continue # 跳过call id小于父节点call id的资源对象
             if branch.get_call(input_candidate_resource.call_id) is not None:
-                continue
+                continue # 跳过已有的call id，避免重复添加
             branch.calls.append(BranchCall(call=input_candidate_resource.call))
 
         # If shader doesn't have listed outputs, we've reached the end of current branch
-        if len(shader_map.outputs) == 0:
+        if len(shader_map.outputs) == 0: # 到DRAW_VS_DUMMY的时候
             return branch
 
         branches = []
-
-        for output_slot in shader_map.outputs:
+        # 遍历outputs，通常只有1个
+        for output_slot in shader_map.outputs: 
 
             output_hashes = []
 
@@ -195,9 +195,9 @@ class CallsCollector:
                 # output_branch.nested_branches.append(nested_branch)
 
                 if isinstance(nested_branch, list):
-                    output_branch.nested_branches.extend(nested_branch)
+                    output_branch.nested_branches.extend(nested_branch) # 列表则合并
                 else:
-                    output_branch.nested_branches.append(nested_branch)
+                    output_branch.nested_branches.append(nested_branch) # <ShaderCallBranch>则添加
 
             if len(output_branch.calls) == 0:
                 continue
@@ -214,12 +214,13 @@ class CallsCollector:
         root_shaders = []
         for shader_id, shader_map in shader_data_pattern.items():
             # Hack: Force short-cirquited shaders into root shaders
+            if len(shader_map.inputs) == 0:
+                root_shaders.append(shader_id)
+                continue
             for outputs in shader_map.outputs:
                 if outputs.shader_id == shader_id:
                     root_shaders.append(shader_id)
                     break
-            if len(shader_map.inputs) == 0:
-                root_shaders.append(shader_id)
         return root_shaders
 
     def get_all_slot_resources(self, shader_type, slot):
@@ -232,14 +233,14 @@ class CallsCollector:
             'shaders:type': shader_type,
             'slot_type': slot.slot_type,
         }
-        if slot.slot_id is not None:
+        if slot.slot_id is not None: # 空值不设置，非空设置
             input_filter_attributes['slot_id'] = slot.slot_id
-        if slot.shader_type != ShaderType.Empty:
+        if slot.shader_type != ShaderType.Empty: # 空值不设置，非空设置
             input_filter_attributes['slot_shader_type'] = slot.shader_type
 
         slot_resources = DictFilter(Filter(
-            attributes=input_filter_attributes,
-            dictionaries=[self.dump.resources]
+            attributes=input_filter_attributes, # 过滤条件
+            dictionaries=[self.dump.resources] # 过滤对象
         )).filtered_dict
 
         self.cache[hash] = slot_resources
