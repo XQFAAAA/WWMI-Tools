@@ -103,7 +103,7 @@ class ShapeKeyBuilder:
                 if batch_vertex_offset > 0 and indexed_offsets[-1] != batch_vertex_offset:
                     raise ValueError(f'Invalid offset {batch_vertex_offset} for shapekey batch (last offset is {indexed_offsets[-1]})')
                 
-                shapekey_offsets = cb_data[0:128]
+                shapekey_offsets = cb_data[0:128] # 128限制，但有些人物形态键超过了128
                 vertex_ids = entry.shapekey_vertex_id_buffer.get_values(AbstractSemantic(Semantic.RawData))[batch_vertex_offset:]
                 vertex_offsets = entry.shapekey_vertex_offset_buffer.get_values(AbstractSemantic(Semantic.RawData))[batch_vertex_offset*6:]
 

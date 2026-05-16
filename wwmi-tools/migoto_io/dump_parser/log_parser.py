@@ -88,29 +88,31 @@ class FrameDumpLog:
             # 正则匹配
             call.import_data(raw_log_entry)
 
-        # for line_id, line in enumerate(lines):
-        #     raw_call_id = line[0:6]
-        #     if raw_call_id.isnumeric():
-        #         line_call_id = int(raw_call_id)
-
-        #         if call is None: # 第二行000001，直接创建call
-        #             call = FrameDumpCall(line_call_id)
-        #             self.calls[raw_call_id] = call
-                
-        #         if line_call_id != call.id: # 新的call，如000001->000002
-        #             call = FrameDumpCall(line_call_id)
-        #             if line_call_id in self.calls:
-        #                 raise ValueError(f'Malformed log line {line_id}: '
-        #                                     f'data collection for call id {raw_call_id} was already finished, '
-        #                                     f'current call id: {call.id}')
-        #             self.calls[raw_call_id] = call
-                
-        #         call.import_data(raw_log_entry)
-        #         raw_log_entry = [line[7:]]
-        #     elif call is None: # 第一行analyse_options，直接跳过
-        #         continue
-        #     else:
-        #         raw_log_entry.append(line.strip())
-        # # Handle last line of the log
-        # call.import_data(raw_log_entry)
+        # self.calls = {}
+        # with (open(self.path, "r") as f):
+        #     lines = f.readlines()
+        #     call = None
+        #     raw_log_entry = []
+        #     for line_id, line in enumerate(lines):
+        #         raw_call_id = line[0:6]
+        #         if raw_call_id.isnumeric():
+        #             line_call_id = int(raw_call_id)
+        #             if call is None:
+        #                 call = FrameDumpCall(line_call_id)
+        #                 self.calls[raw_call_id] = call
+        #             elif line_call_id != call.id:
+        #                 call = FrameDumpCall(line_call_id)
+        #                 if line_call_id in self.calls:
+        #                     raise ValueError(f'Malformed log line {line_id}: '
+        #                                      f'data collection for call id {raw_call_id} was already finished, '
+        #                                      f'current call id: {call.id}')
+        #                 self.calls[raw_call_id] = call
+        #             call.import_data(raw_log_entry)
+        #             raw_log_entry = [line[7:]]
+        #         elif call is None:
+        #             continue
+        #         else:
+        #             raw_log_entry.append(line.strip())
+        #     # Handle last line of the log
+        #     call.import_data(raw_log_entry)
 
