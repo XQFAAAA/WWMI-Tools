@@ -103,11 +103,11 @@ class DictFilter:
 
         return filter
 
-    # def intersection(self, list1, list2):
-    #     return [value for value in list1 if value in list2]
+    def intersection(self, list1, list2): # 保持顺序
+        return [value for value in list1 if value in list2]
 
-    def intersection(self, keys1, keys2): # 交集
-        return set(keys1) & set(keys2)
+    # def intersection(self, keys1, keys2): # 交集
+    #     return set(keys1) & set(keys2)
     
     def get_filtered_dict(self, filter, data_dict=None):
         result = {}
