@@ -1,6 +1,7 @@
 /!MEDIA/
 /!RELEASES/
 /!TRASH/
+.vscode/
 .idea/
 __pycache__/
 wwmi-tools/wwmi-tools_updater
