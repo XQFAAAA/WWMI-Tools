@@ -155,8 +155,11 @@ class MeshObject:
 
         textures = {}
         for texture in draw_data.textures:
-            slot_hash = texture.get_slot_hash()
-            textures[slot_hash] = texture
+            # 这会导致不同的vs-ps中，在相同ps-t槽位上，如果使用了同一张贴图
+            # 只记录绘制顺序在后面的信息
+            # slot_hash = texture.get_slot_hash()
+            # textures[slot_hash] = texture
+            textures[texture.raw] = texture
 
         return MeshComponent(
             vb_hash=draw_data.vb_hash,
