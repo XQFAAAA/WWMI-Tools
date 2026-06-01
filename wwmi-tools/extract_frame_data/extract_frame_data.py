@@ -237,6 +237,7 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
 
         textures = {}
         texture_usage = {}
+        shader_texture_usage = {}
         
         for component_id, component in enumerate(object_data.components):
 
@@ -252,6 +253,7 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
 
             # Write textures
             texture_usage[component_filename] = OrderedDict()
+            shader_texture_usage[component_filename] = OrderedDict()
             for texture in component.textures:
 
                 if texture.hash not in textures:
@@ -267,6 +269,16 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
 
                 shaders = '-'.join([shader.raw for shader in texture.shaders])
                 texture_usage[component_filename][texture.get_slot()].append(f'{texture.hash}-{shaders}')
+
+                vs_ref = next((s for s in texture.shaders if s.type == ShaderType.Vertex), None)
+                ps_ref = next((s for s in texture.shaders if s.type == ShaderType.Pixel), None)
+                vs_key = vs_ref.raw if vs_ref else ''
+                ps_key = ps_ref.raw if ps_ref else ''
+                if vs_key not in shader_texture_usage[component_filename]:
+                    shader_texture_usage[component_filename][vs_key] = OrderedDict()
+                if ps_key not in shader_texture_usage[component_filename][vs_key]:
+                    shader_texture_usage[component_filename][vs_key][ps_key] = OrderedDict()
+                shader_texture_usage[component_filename][vs_key][ps_key][texture.get_slot()] = texture.hash
                 
             texture_usage[component_filename] = OrderedDict(sorted(texture_usage[component_filename].items()))
 
@@ -277,6 +289,9 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
             
         with open(object_directory / f'TextureUsage.json', "w") as f:
             f.write(json.dumps(texture_usage, indent=4))
+
+        with open(object_directory / f'ShaderTextureUsage.json', "w") as f:
+            f.write(json.dumps(shader_texture_usage, indent=4))
 
         with open(object_directory / f'Metadata.json', "w") as f:
             f.write(object_data.metadata)
