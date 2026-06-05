@@ -1,8 +1,10 @@
 import os
+import re
 import sys
 import time
 import json
 import shutil
+import subprocess
 
 from pathlib import Path
 from typing import Dict
@@ -218,6 +220,31 @@ configuration = Configuration(
 )
 
 
+def get_texture_info(texdiag_path, texture_path):
+    """Run texdiag.exe info on a texture file and return {width, height, format}."""
+    try:
+        result = subprocess.run(
+            [str(texdiag_path), 'info', str(texture_path)],
+            capture_output=True, text=True, timeout=30
+        )
+        info = {}
+        for line in result.stdout.splitlines():
+            match = re.match(r'\s*(\S+(?:\s+\S+)?)\s*=\s*(.+)', line.strip())
+            if match:
+                key = match.group(1).strip()
+                value = match.group(2).strip()
+                if key == 'width':
+                    info['width'] = int(value)
+                elif key == 'height':
+                    info['height'] = int(value)
+                elif key == 'format':
+                    info['format'] = value
+        return info
+    except Exception as e:
+        print(f'Warning: Failed to get texture info for {texture_path}: {e}')
+        return {}
+
+
 def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missing_shapekeys = False):
     output_directory = Path(output_directory)
 
@@ -282,10 +309,41 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
                 
             texture_usage[component_filename] = OrderedDict(sorted(texture_usage[component_filename].items()))
 
+        texdiag_path = Path(__file__).resolve().parent.parent.parent / 'DirectXTex' / 'texdiag.exe'
+
+        # Collect texture metadata and determine filenames
+        texture_metadata = {}
         for texture_hash, texture in textures.items():
             path = Path(texture['path'])
             components = '-'.join(sorted(list(set(texture['components']))))
-            shutil.copyfile(path, object_directory / f'Components-{components} t={texture_hash}{path.suffix}')
+            filename = f'Components-{components} t={texture_hash}{path.suffix}'
+            shutil.copyfile(path, object_directory / filename)
+
+            info = get_texture_info(texdiag_path, path)
+            texture_metadata[texture_hash] = {
+                'filename': filename,
+                'hash': texture_hash,
+                'format': info.get('format', ''),
+                'width': info.get('width', 0),
+                'height': info.get('height', 0),
+            }
+
+        # Transform shader_texture_usage values from hash strings to rich objects
+        for component_key in shader_texture_usage:
+            for vs_key in shader_texture_usage[component_key]:
+                for ps_key in shader_texture_usage[component_key][vs_key]:
+                    for slot_key in shader_texture_usage[component_key][vs_key][ps_key]:
+                        hash_val = shader_texture_usage[component_key][vs_key][ps_key][slot_key]
+                        shader_texture_usage[component_key][vs_key][ps_key][slot_key] = texture_metadata.get(
+                            hash_val,
+                            {
+                                'filename': '',
+                                'hash': hash_val,
+                                'format': '',
+                                'width': 0,
+                                'height': 0,
+                            }
+                        )
             
         with open(object_directory / f'TextureUsage.json', "w") as f:
             f.write(json.dumps(texture_usage, indent=4))
