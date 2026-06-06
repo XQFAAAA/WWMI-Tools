@@ -18,6 +18,7 @@ from ..migoto_io.data_model.byte_buffer import NumpyBuffer, MigotoFmt
 from ..migoto_io.blender_tools.vertex_groups import remove_unused_vertex_groups
 
 from ..extract_frame_data.metadata_format import read_metadata
+from .material_setup import setup_materials
 
 
 # TODO: Add support of import of unhandled semantics into vertex attributes
@@ -63,6 +64,10 @@ class ObjectImporter:
             link_object_to_collection(obj, col)
             if cfg.skip_empty_vertex_groups and cfg.import_skeleton_type == 'MERGED':
                 remove_unused_vertex_groups(context, obj)
+
+        # Setup materials based on ShaderTextureUsage.json
+        if cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX'):
+            setup_materials(object_source_folder, imported_objects)
 
         print(f'Total import time: {time.time() - start_time :.3f}s')
 
