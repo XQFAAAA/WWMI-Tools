@@ -80,8 +80,8 @@ class ObjectMergerWWMI(ObjectMerger):
                 }
 
                 # Find material matching component pattern
+                matched_material = None
                 if obj.data.materials:
-                    matched_material = None
                     for mat in obj.data.materials:
                         if mat is None:
                             continue
@@ -111,141 +111,148 @@ class ObjectMergerWWMI(ObjectMerger):
                 if is_simple and component_material_collected:
                     continue
 
-                # Find node groups in the material
-                if obj.data.materials:
-                    for mat in obj.data.materials:
-                        if mat is None or not mat.use_nodes:
+                # Find node groups in the matched material (or all materials if no match)
+                if matched_material is not None and matched_material.use_nodes:
+                    node_group_materials = [matched_material]
+                elif obj.data.materials:
+                    node_group_materials = [
+                        mat for mat in obj.data.materials
+                        if mat is not None and mat.use_nodes
+                    ]
+                else:
+                    node_group_materials = []
+
+                for mat in node_group_materials:
+                    for node in mat.node_tree.nodes:
+                        if node.type != 'GROUP':
                             continue
-                        for node in mat.node_tree.nodes:
-                            if node.type != 'GROUP':
-                                continue
-                            if node.node_tree is None:
-                                continue
-                            # Check if node group is muted (M key toggles mute)
-                            if node.mute:
-                                continue
-                            ng_match = node_group_pattern.match(node.node_tree.name)
-                            if not ng_match:
+                        if node.node_tree is None:
+                            continue
+                        # Check if node group is muted (M key toggles mute)
+                        if node.mute:
+                            continue
+                        ng_match = node_group_pattern.match(node.node_tree.name)
+                        if not ng_match:
+                            continue
+
+                        vs_value = ng_match.group(1)
+                        ps_value = ng_match.group(2)
+                        node_group_info = {
+                            'name': node.node_tree.name,
+                            'vs': vs_value,
+                            'ps': ps_value,
+                            'inputs': [],
+                        }
+
+                        # Iterate over node group inputs
+                        for input_socket in node.inputs:
+                            input_name = input_socket.name
+                            # Only process ps-t inputs, skip ps-t alpha inputs
+                            if not input_name.startswith('ps-t') or 'alpha' in input_name.lower():
                                 continue
 
-                            vs_value = ng_match.group(1)
-                            ps_value = ng_match.group(2)
-                            node_group_info = {
-                                'name': node.node_tree.name,
-                                'vs': vs_value,
-                                'ps': ps_value,
-                                'inputs': [],
+                            # Check if input is linked and the link is active
+                            if not input_socket.is_linked:
+                                continue
+
+                            link = input_socket.links[0]
+                            if link.is_muted:
+                                continue
+                            from_node = link.from_node
+
+                            # Check if the source is an image texture node
+                            if from_node.type != 'TEX_IMAGE':
+                                continue
+
+                            # Check if the image node is muted (Ctrl+Alt+RMB toggles mute)
+                            if from_node.mute:
+                                continue
+
+                            image = from_node.image
+                            if image is None:
+                                continue
+
+                            # Calculate base_name from image name
+                            image_name = image.name
+                            dot_index = image_name.find('.')
+                            base_name = image_name[:dot_index] if dot_index > 0 else image_name
+
+                            # Determine format from ShaderTextureUsage.json
+                            format_enum = None
+                            match_format_enum = None
+                            if material_info['material_index'] is not None:
+                                component_key = f"Component {material_info['material_index']}"
+                                if component_key in shader_texture_usage:
+                                    vs_key = f"vs={vs_value}"
+                                    ps_key = f"ps={ps_value}"
+                                    if vs_key in shader_texture_usage[component_key]:
+                                        if ps_key in shader_texture_usage[component_key][vs_key]:
+                                            slot_data = shader_texture_usage[component_key][vs_key][ps_key]
+                                            if input_name in slot_data:
+                                                format_str = slot_data[input_name].get('format', '')
+                                                if format_str:
+                                                    try:
+                                                        format_enum = DXGIFormatIndex[format_str]
+                                                        match_format_enum = format_enum.to_typeless()
+                                                    except KeyError:
+                                                        print(f"Warning: Unknown format '{format_str}' for {input_name}")
+
+                            # Generate resource_name and dds_export_name: use hash if non-ASCII
+                            sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', base_name)
+                            has_non_ascii = any(ord(c) > 127 for c in base_name)
+                            if has_non_ascii:
+                                name_hash = hashlib.sha256(base_name.encode('utf-8')).hexdigest()[:16]
+                                dds_export_name = f'{name_hash}.dds'
+                                resource_name = name_hash
+                            else:
+                                dds_export_name = base_name + '.dds'
+                                resource_name = sanitized
+
+                            if match_format_enum is not None:
+                                prefix = match_format_enum.name.split('_')[0]
+                                ascii_digits = ''.join(str(ord(c)) for c in prefix)
+                                filter_index = float(f"83.{ascii_digits}")
+                            else:
+                                filter_index = 0.0
+
+                            input_info = {
+                                'slot': input_name,
+                                'format': format_enum,
+                                'match_format': match_format_enum,
+                                'filter_index': filter_index,
+                                'image': image,
+                                'dds_export_name': dds_export_name,
+                                'resource_name': resource_name,
                             }
+                            node_group_info['inputs'].append(input_info)
 
-                            # Iterate over node group inputs
-                            for input_socket in node.inputs:
-                                input_name = input_socket.name
-                                # Only process ps-t inputs, skip ps-t alpha inputs
-                                if not input_name.startswith('ps-t') or 'alpha' in input_name.lower():
-                                    continue
-
-                                # Check if input is linked and the link is active
-                                if not input_socket.is_linked:
-                                    continue
-
-                                link = input_socket.links[0]
-                                if link.is_muted:
-                                    continue
-                                from_node = link.from_node
-
-                                # Check if the source is an image texture node
-                                if from_node.type != 'TEX_IMAGE':
-                                    continue
-
-                                # Check if the image node is muted (Ctrl+Alt+RMB toggles mute)
-                                if from_node.mute:
-                                    continue
-
-                                image = from_node.image
-                                if image is None:
-                                    continue
-
-                                # Calculate base_name from image name
-                                image_name = image.name
-                                dot_index = image_name.find('.')
-                                base_name = image_name[:dot_index] if dot_index > 0 else image_name
-
-                                # Determine format from ShaderTextureUsage.json
-                                format_enum = None
-                                match_format_enum = None
-                                if material_info['material_index'] is not None:
-                                    component_key = f"Component {material_info['material_index']}"
-                                    if component_key in shader_texture_usage:
-                                        vs_key = f"vs={vs_value}"
-                                        ps_key = f"ps={ps_value}"
-                                        if vs_key in shader_texture_usage[component_key]:
-                                            if ps_key in shader_texture_usage[component_key][vs_key]:
-                                                slot_data = shader_texture_usage[component_key][vs_key][ps_key]
-                                                if input_name in slot_data:
-                                                    format_str = slot_data[input_name].get('format', '')
-                                                    if format_str:
-                                                        try:
-                                                            format_enum = DXGIFormatIndex[format_str]
-                                                            match_format_enum = format_enum.to_typeless()
-                                                        except KeyError:
-                                                            print(f"Warning: Unknown format '{format_str}' for {input_name}")
-
-                                # Generate resource_name and dds_export_name: use hash if non-ASCII
-                                sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', base_name)
-                                has_non_ascii = any(ord(c) > 127 for c in base_name)
-                                if has_non_ascii:
-                                    name_hash = hashlib.sha256(base_name.encode('utf-8')).hexdigest()[:16]
-                                    dds_export_name = f'{name_hash}.dds'
-                                    resource_name = name_hash
+                            # Add to component match_formats
+                            if match_format_enum is not None and match_format_enum.value not in component_match_formats:
+                                if is_simple:
+                                    # Simple mode: single match_format per entry
+                                    component_match_formats[match_format_enum.value] = {
+                                        'match_format': match_format_enum,
+                                        'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
+                                    }
                                 else:
-                                    dds_export_name = base_name + '.dds'
-                                    resource_name = sanitized
+                                    # Complex mode: include all same-prefix formats
+                                    same_prefix_formats = match_format_enum.get_same_prefix_formats()
+                                    component_match_formats[match_format_enum.value] = {
+                                        'match_format': match_format_enum,
+                                        'match_formats': same_prefix_formats,
+                                        'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
+                                    }
 
-                                if match_format_enum is not None:
-                                    prefix = match_format_enum.name.split('_')[0]
-                                    ascii_digits = ''.join(str(ord(c)) for c in prefix)
-                                    filter_index = float(f"83.{ascii_digits}")
-                                else:
-                                    filter_index = 0.0
-
-                                input_info = {
-                                    'slot': input_name,
-                                    'format': format_enum,
-                                    'match_format': match_format_enum,
-                                    'filter_index': filter_index,
+                            # Add to all_images (deduplicate by dds_export_name)
+                            if dds_export_name not in all_images:
+                                all_images[dds_export_name] = {
                                     'image': image,
                                     'dds_export_name': dds_export_name,
                                     'resource_name': resource_name,
                                 }
-                                node_group_info['inputs'].append(input_info)
 
-                                # Add to component match_formats
-                                if match_format_enum is not None and match_format_enum.value not in component_match_formats:
-                                    if is_simple:
-                                        # Simple mode: single match_format per entry
-                                        component_match_formats[match_format_enum.value] = {
-                                            'match_format': match_format_enum,
-                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                        }
-                                    else:
-                                        # Complex mode: include all same-prefix formats
-                                        same_prefix_formats = match_format_enum.get_same_prefix_formats()
-                                        component_match_formats[match_format_enum.value] = {
-                                            'match_format': match_format_enum,
-                                            'match_formats': same_prefix_formats,
-                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                        }
-
-                                # Add to all_images (deduplicate by dds_export_name)
-                                if dds_export_name not in all_images:
-                                    all_images[dds_export_name] = {
-                                        'image': image,
-                                        'dds_export_name': dds_export_name,
-                                        'resource_name': resource_name,
-                                    }
-
-                            if node_group_info['inputs']:
-                                material_info['node_groups'].append(node_group_info)
+                        if node_group_info['inputs']:
+                            material_info['node_groups'].append(node_group_info)
 
                 if is_simple:
                     # Simple mode: attach material to component (only first)
