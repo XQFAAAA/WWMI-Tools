@@ -458,13 +458,40 @@ if $mod_enabled
         run = CommandListTriggerResourceOverrides
         {{note("Do by-slot resource overrides")}}
         run = CommandListOverrideSharedResources
+        {%- if cfg.texture_mode == 'SLOT_SIMPLE' and merged_object.components[loop.index0].material %}
+        {%- for node_group in merged_object.components[loop.index0].material.node_groups %}
+        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} 1
+            {%- for input in node_group.inputs %}
+            {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
+            {%- endfor %}
+        endif
+        {%- endfor %}
+        {%- endif %}
     {%- for obj in merged_object.components[loop.index0].objects %}
         ; Draw {{ obj.name }}
 		{%- if cfg.use_ini_toggles %}
         if {{ formatter.format_ini_drawvar(obj.name) }}
+            {%- if cfg.texture_mode == 'SLOT_COMPLEX' and obj.material %}
+            {%- for node_group in obj.material.node_groups %}
+            if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} 1
+                {%- for input in node_group.inputs %}
+                {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
+                {%- endfor %}
+            endif
+            {%- endfor %}
+            {%- endif %}
 			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
         endif
 		{%- else %}
+        {%- if cfg.texture_mode == 'SLOT_COMPLEX' and obj.material %}
+        {%- for node_group in obj.material.node_groups %}
+        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} 1
+            {%- for input in node_group.inputs %}
+            {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
+            {%- endfor %}
+        endif
+        {%- endfor %}
+        {%- endif %}
         drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
 		{%- endif %}
     {%- endfor %}
@@ -488,6 +515,51 @@ endif
 
 ; Shading: Textures -------------------------
 
+{%- if cfg.texture_mode == 'SLOT_SIMPLE' and slot_textures %}
+{%- for component in merged_object.components %}
+{%- set component_idx = loop.index0 %}
+{%- for mf in component.match_formats %}
+
+[TextureOverrideComponent{{ component_idx }}{{ mf.match_format.name }}]
+match_first_index = {{ component.index_offset }}
+match_index_count = {{ component.index_count }}
+match_priority = 100
+match_format = {{ mf.match_format.name }}
+filter_index = {{ mf.filter_index }}
+{%- endfor %}
+{%- endfor %}
+
+{%- for texture in slot_textures %}
+
+[ResourceTexture{{ texture.resource_name }}]
+filename = Textures/{{ texture.dds_export_name }}
+{%- endfor %}
+{%- endif %}
+{%- if cfg.texture_mode == 'SLOT_COMPLEX' and slot_textures %}
+{%- for component in merged_object.components %}
+{%- set component_idx = loop.index0 %}
+{%- for mf in component.match_formats %}
+{%- if mf.match_formats is defined %}
+{%- for fmt in mf.match_formats %}
+
+[TextureOverrideComponent{{ component_idx }}{{ fmt.name }}]
+match_first_index = {{ component.index_offset }}
+match_index_count = {{ component.index_count }}
+match_priority = 100
+match_format = {{ fmt.name }}
+filter_index = {{ mf.filter_index }}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+
+{%- for texture in slot_textures %}
+
+[ResourceTexture{{ texture.resource_name }}]
+filename = Textures/{{ texture.dds_export_name }}
+{%- endfor %}
+{%- endif %}
+{%- if cfg.texture_mode == 'HASH' %}
 {%- for texture in textures %}
 
 [ResourceTexture{{ loop.index0 }}]
@@ -500,6 +572,7 @@ if $object_detected
     this = ResourceTexture{{ loop.index0 }}
 endif
 {%- endfor %}
+{%- endif %}
 
 {% if merged_object.shapekeys.vertex_count > 0 -%}
 ; Skinning: Shape Keys Override -------------------------

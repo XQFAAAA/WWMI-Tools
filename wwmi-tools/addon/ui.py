@@ -65,7 +65,8 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         layout = self.layout
         row = layout.row()
         row.alignment = 'RIGHT'
-        row.label(text="v"+".".join(str(i) for i in bl_info.get('version', (0, 0, 0))))
+        row.label(text="v"+".".join(str(i) for i in bl_info.get('version', (0, 0, 0)))+" xqfa branch")
+
 
     def invoke(self, context, event):
         return context.window_manager.invoke_props_dialog(self)
@@ -134,6 +135,7 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         row.prop(cfg, 'mod_output_folder')
         
         layout.row().prop(cfg, 'mod_skeleton_type')
+        layout.row().prop(cfg, 'texture_mode')
 
         if not cfg.partial_export:
 
@@ -141,7 +143,11 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
 
             layout.row().prop(cfg, 'mirror_mesh')
             layout.row().prop(cfg, 'apply_all_modifiers')
-            layout.row().prop(cfg, 'copy_textures')
+
+            row = layout.row(align=True)
+            row.prop(cfg, 'copy_textures')
+            if cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX'):
+                row.prop(cfg, 'export_textures')
 
             col = layout.column(align=True)
             grid = col.grid_flow(columns=2, align=True)
@@ -174,6 +180,7 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
 
         layout.row().prop(cfg, 'color_storage')
         layout.row().prop(cfg, 'import_skeleton_type')
+        layout.row().prop(cfg, 'texture_mode')
         if cfg.import_skeleton_type == 'MERGED':
             layout.row().prop(cfg, 'skip_empty_vertex_groups')
         layout.row().prop(cfg, 'mirror_mesh')

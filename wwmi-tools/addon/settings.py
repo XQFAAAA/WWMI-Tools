@@ -170,6 +170,17 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         update=lambda self, context: self.on_update_clear_error('mod_output_folder'),
     ) # type: ignore
 
+    texture_mode: bpy.props.EnumProperty(
+        name="Texture",
+        description="Controls how textures are referenced in exported mod.ini",
+        items=[
+            ('HASH', 'Hash', 'Reference textures by hash (default 3DMigoto style)'),
+            ('SLOT_SIMPLE', 'Slot Simple', 'Requires ShaderTextureUsage.json\nReads the first matching material per Component (same Component index). Good for simple retextures where all objects in a component share the same textures.\n读取同一Component序号物体的第一个满足条件的Component序号材质。适用于同组件内物体共享纹理的简单重绘'),
+            ('SLOT_COMPLEX', 'Slot Complex', 'Requires ShaderTextureUsage.json\nReads all materials per object, each object draws with its own textures. If DDS formats differ between objects, you need to manually backup/restore ps-t before and after draw.\n读取所有Component序号物体的材质，每个物体的材质都读取一次。如果dds格式杂乱，需要手动在draw前后备份/还原ps-t'),
+        ],
+        default='HASH',
+    ) # type: ignore
+
     mod_skeleton_type: bpy.props.EnumProperty(
         name="Skeleton",
         description="Select the same skeleton type that was used for import! Defines logic of exported mod.ini.",
@@ -189,6 +200,12 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     copy_textures: BoolProperty(
         name="Copy Textures",
         description="Copy texture files to export folder",
+        default=True,
+    ) # type: ignore
+
+    export_textures: BoolProperty(
+        name="Export Textures",
+        description="Export textures in slot mode (convert non-DDS textures to DDS format)",
         default=True,
     ) # type: ignore
 

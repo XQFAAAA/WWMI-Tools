@@ -29,6 +29,7 @@ class TempObject:
     vertex_count: int = 0
     index_count: int = 0
     index_offset: int = 0
+    material: dict = None
 
 
 @dataclass
@@ -36,8 +37,11 @@ class MergedObjectComponent:
     objects: List[TempObject]
     vertex_count: int = 0
     index_count: int = 0
+    index_offset: int = 0
     blend_remap_id: int = -1
     blend_remap_vg_count: int = 0
+    match_formats: list = field(default_factory=list)
+    material: dict = None
     
     def get_object(self, object_name):
         for obj in self.objects:
@@ -98,6 +102,7 @@ class ObjectMerger:
                 self.fill_missing_temp_objects_data()
             self.finalize_temp_objects_data()
             self.finalize_temp_objects_stats()
+            self.pre_join_objects()
             self.build_merged_object()
         except Exception as e:
             self.remove_temp_objects()
@@ -209,6 +214,7 @@ class ObjectMerger:
     def finalize_temp_objects_stats(self):
         index_offset = 0
         for component_id, component in enumerate(self.components):
+            component.index_offset = index_offset
             for temp_object in component.objects:
                 temp_obj = temp_object.object
                 # Calculate vertex count of temporary object
@@ -227,6 +233,10 @@ class ObjectMerger:
         for component_id, component in enumerate(self.components):
             for temp_object in component.objects:
                 remove_mesh(temp_object.object.data)
+
+    def pre_join_objects(self):
+        """Hook called before joining TEMP objects. Override in subclasses to collect per-object data."""
+        pass
 
     def build_merged_object(self):
 

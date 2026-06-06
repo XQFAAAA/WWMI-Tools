@@ -43,6 +43,7 @@ class IniMaker:
     comment_code: bool
     unrestricted_custom_shape_keys: bool
     skeleton_scale: float
+    slot_textures: list = None
     formatter: TextFormatter = TextFormatter()
     # Output
     ini_string: str = field(init=False)
