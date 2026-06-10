@@ -309,7 +309,7 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
                 
             texture_usage[component_filename] = OrderedDict(sorted(texture_usage[component_filename].items()))
 
-        texdiag_path = Path(__file__).resolve().parent.parent.parent / 'DirectXTex' / 'texdiag.exe'
+        texdiag_path = Path(__file__).resolve().parent.parent / 'DirectXTex' / 'texdiag.exe'
 
         # Collect texture metadata and determine filenames
         texture_metadata = {}

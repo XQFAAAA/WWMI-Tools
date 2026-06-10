@@ -588,7 +588,7 @@ class ModExporter:
         if not self.cfg.export_textures:
             return
 
-        texconv_path = Path(os.path.realpath(__file__)).parent.parent.parent / 'DirectXTex' / 'texconv.exe'
+        texconv_path = Path(os.path.realpath(__file__)).parent.parent / 'DirectXTex' / 'texconv.exe'
         if not texconv_path.is_file():
             raise ConfigError('mod_output_folder', f'texconv.exe not found at {texconv_path}!')
 
