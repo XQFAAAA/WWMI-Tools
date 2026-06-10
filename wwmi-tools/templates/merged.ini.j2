@@ -521,8 +521,8 @@ endif
 {%- for mf in component.match_formats %}
 
 [TextureOverrideComponent{{ component_idx }}{{ mf.match_format.name }}]
-match_first_index = {{ component.index_offset }}
-match_index_count = {{ component.index_count }}
+match_first_index = {{ extracted_object.components[component_idx].index_offset }}
+match_index_count = {{ extracted_object.components[component_idx].index_count }}
 match_priority = 100
 match_format = {{ mf.match_format.name }}
 filter_index = {{ mf.filter_index }}
@@ -543,8 +543,8 @@ filename = Textures/{{ texture.dds_export_name }}
 {%- for fmt in mf.match_formats %}
 
 [TextureOverrideComponent{{ component_idx }}{{ fmt.name }}]
-match_first_index = {{ component.index_offset }}
-match_index_count = {{ component.index_count }}
+match_first_index = {{ extracted_object.components[component_idx].index_offset }}
+match_index_count = {{ extracted_object.components[component_idx].index_count }}
 match_priority = 100
 match_format = {{ fmt.name }}
 filter_index = {{ mf.filter_index }}

@@ -622,19 +622,13 @@ class ModExporter:
 
             print(f'Converting {dds_export_name} via TGA...')
 
-            # Save image as TGA (restore original settings to avoid modifying blend file)
-            _orig_filepath = image.filepath_raw
-            # _orig_file_format = image.file_format
+            # Save as TGA (save_copy=True avoids modifying the blend file's image settings)
             try:
-                image.filepath_raw = str(tga_path)
                 image.file_format = 'TARGA'
-                image.save()
+                image.save(filepath=str(tga_path), save_copy=True)
             except Exception as e:
                 print(f"Warning: Failed to save image '{image.name}' as TGA: {e}")
                 continue
-            finally:
-                image.filepath_raw = _orig_filepath
-                # image.file_format = _orig_file_format
 
             # Convert TGA to DDS using texconv
             cmd = [
