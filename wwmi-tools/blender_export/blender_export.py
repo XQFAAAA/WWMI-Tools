@@ -624,7 +624,7 @@ class ModExporter:
 
             # Save image as TGA (restore original settings to avoid modifying blend file)
             _orig_filepath = image.filepath_raw
-            _orig_file_format = image.file_format
+            # _orig_file_format = image.file_format
             try:
                 image.filepath_raw = str(tga_path)
                 image.file_format = 'TARGA'
@@ -634,7 +634,7 @@ class ModExporter:
                 continue
             finally:
                 image.filepath_raw = _orig_filepath
-                image.file_format = _orig_file_format
+                # image.file_format = _orig_file_format
 
             # Convert TGA to DDS using texconv
             cmd = [
