@@ -141,13 +141,17 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
 
             layout.row()
 
+            if cfg.texture_mode == 'SLOT':
+                row = layout.row(align=True)
+                row.prop(cfg, 'export_textures')
+                row.prop(cfg, 'slot_complex')
+                row.prop(cfg, 'rabbitfx')
+
+            layout.separator()
+
             layout.row().prop(cfg, 'mirror_mesh')
             layout.row().prop(cfg, 'apply_all_modifiers')
-
-            row = layout.row(align=True)
-            row.prop(cfg, 'copy_textures')
-            if cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX'):
-                row.prop(cfg, 'export_textures')
+            layout.row().prop(cfg, 'copy_textures')
 
             col = layout.column(align=True)
             grid = col.grid_flow(columns=2, align=True)

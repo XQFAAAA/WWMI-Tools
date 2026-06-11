@@ -175,10 +175,16 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         description="Controls how textures are referenced in exported mod.ini",
         items=[
             ('HASH', 'Hash', 'Reference textures by hash (default 3DMigoto style)'),
-            ('SLOT_SIMPLE', 'Slot Simple', 'Requires ShaderTextureUsage.json\nReads the first matching material per Component (same Component index). Good for simple retextures where all objects in a component share the same textures.\n读取同一Component序号物体的第一个满足条件的Component序号材质。适用于同组件内物体共享纹理的简单重绘'),
-            ('SLOT_COMPLEX', 'Slot Complex', 'Requires ShaderTextureUsage.json\nReads all materials per object, each object draws with its own textures. If DDS formats differ between objects, you need to manually backup/restore ps-t before and after draw.\n读取所有Component序号物体的材质，每个物体的材质都读取一次。如果dds格式杂乱，需要手动在draw前后备份/还原ps-t'),
+            ('SLOT', 'Slot', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
         ],
         default='HASH',
+        update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,
+    ) # type: ignore
+
+    slot_complex: BoolProperty(
+        name="Slot Complex",
+        description="读取所有Component序号物体的材质，每个物体的材质都读取一次。有dds格式风险",
+        default=False,
     ) # type: ignore
 
     mod_skeleton_type: bpy.props.EnumProperty(
@@ -207,6 +213,12 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         name="Export Textures",
         description="Export textures in slot mode (convert non-DDS textures to DDS format)",
         default=True,
+    ) # type: ignore
+
+    rabbitfx: BoolProperty(
+        name="RabbitFX",
+        description="使用RabbitFX中的正则表达式filter_index 1718.1，当然需要安装RabbitFX mod",
+        default=False,
     ) # type: ignore
 
     write_ini: BoolProperty(

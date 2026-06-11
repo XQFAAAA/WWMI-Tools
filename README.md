@@ -12,7 +12,7 @@
 
 ## Import Object
 
-当选择Slot Simple或Slot Complex时
+当选择Slot时
 
 ![alt text](README-image/PixPin_2026-06-06_22-36-24.png)
 
@@ -54,9 +54,11 @@ Export Mod后，在Textures中，会看到导出的图片，如果图片名称�
 
 ![alt text](README-image/PixPin_2026-06-06_23-19-44.png)
 
-应该使用适当的slot来保证稳定性
+## slot稳定性
 
-1. 确保你选择的几个slot所在的着色器能够和其他着色器区分开，即这个dds format组合是唯一的
+应该使用适当的slot来保证稳定性，这个插件功能不可能适配所有的问题，但初衷是尽可能不使用贴图的hash值
+
+1. 确保你选择的几个slot所在的着色器能够和其他着色器区分开，即这个dds format组合是唯一的，有时候很难做到，可以安装RabbitFX，并在插件中开启选项，插件会加入RabbitFX中的正则表达式 filter_index 1718.1作为条件判断
 2. 不要选择那些不会被使用到的贴图，比如body的贴图在head上，它就不应该被选择
 3. 一些同样作用的着色器可能存在略微的差别，比如在角色出现的瞬间的着色器和正常情况的着色器，可能在某一个slot位置插入的其他贴图
 
@@ -71,11 +73,9 @@ Export Mod后，在Textures中，会看到导出的图片，如果图片名称�
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | A | B | C | D | insert | E | F | G | H |
 
-## “Slot Simple“ VS “Slot Complex“
+## Slot Complex
 
-大多数情况下使用Slot Simple是足够使用的
-
-Slot Simple只会选择同个Component序号的第一个材质
+默认情况下 Slot 只会选择同个Component序号的第一个材质
 
 Slot Complex则会分开，同时它兼容ini toggles的功能
 

@@ -458,9 +458,9 @@ if $mod_enabled
         run = CommandListTriggerResourceOverrides
         {{note("Do by-slot resource overrides")}}
         run = CommandListOverrideSharedResources
-        {%- if cfg.texture_mode == 'SLOT_SIMPLE' and merged_object.components[loop.index0].material %}
+        {%- if cfg.texture_mode == 'SLOT' and not cfg.slot_complex and merged_object.components[loop.index0].material %}
         {%- for node_group in merged_object.components[loop.index0].material.node_groups %}
-        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} 1
+        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
             {%- for input in node_group.inputs %}
             {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
             {%- endfor %}
@@ -471,9 +471,9 @@ if $mod_enabled
         ; Draw {{ obj.name }}
 		{%- if cfg.use_ini_toggles %}
         if {{ formatter.format_ini_drawvar(obj.name) }}
-            {%- if cfg.texture_mode == 'SLOT_COMPLEX' and obj.material %}
+            {%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex and obj.material %}
             {%- for node_group in obj.material.node_groups %}
-            if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} 1
+            if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
                 {%- for input in node_group.inputs %}
                 {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
                 {%- endfor %}
@@ -483,9 +483,9 @@ if $mod_enabled
 			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
         endif
 		{%- else %}
-        {%- if cfg.texture_mode == 'SLOT_COMPLEX' and obj.material %}
+        {%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex and obj.material %}
         {%- for node_group in obj.material.node_groups %}
-        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} 1
+        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
             {%- for input in node_group.inputs %}
             {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
             {%- endfor %}
@@ -515,7 +515,7 @@ endif
 
 ; Shading: Textures -------------------------
 
-{%- if cfg.texture_mode == 'SLOT_SIMPLE' and slot_textures %}
+{%- if cfg.texture_mode == 'SLOT' and not cfg.slot_complex and slot_textures %}
 {%- for component in merged_object.components %}
 {%- set component_idx = loop.index0 %}
 {%- for mf in component.match_formats %}
@@ -535,7 +535,7 @@ filter_index = {{ mf.filter_index }}
 filename = Textures/{{ texture.dds_export_name }}
 {%- endfor %}
 {%- endif %}
-{%- if cfg.texture_mode == 'SLOT_COMPLEX' and slot_textures %}
+{%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex and slot_textures %}
 {%- for component in merged_object.components %}
 {%- set component_idx = loop.index0 %}
 {%- for mf in component.match_formats %}

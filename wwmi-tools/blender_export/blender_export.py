@@ -40,6 +40,7 @@ data_models: Dict[str, DataModel] = {
 class ObjectMergerWWMI(ObjectMerger):
     def __init__(self, **kwargs):
         self._texture_mode = kwargs.pop('texture_mode', 'HASH')
+        self._slot_complex = kwargs.pop('slot_complex', False)
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
         super().__init__(**kwargs)
 
@@ -48,7 +49,7 @@ class ObjectMergerWWMI(ObjectMerger):
         self.fill_missing_data(objects)
 
     def pre_join_objects(self):
-        if self._texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX'):
+        if self._texture_mode == 'SLOT':
             self._collect_slot_material_info()
 
     def _collect_slot_material_info(self):
@@ -57,7 +58,7 @@ class ObjectMergerWWMI(ObjectMerger):
             return
 
         shader_texture_usage = self._shader_texture_usage
-        is_simple = self._texture_mode == 'SLOT_SIMPLE'
+        is_simple = not self._slot_complex
 
         # Regex for material name matching
         material_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
@@ -399,7 +400,7 @@ class ModExporter:
         
         # Read ShaderTextureUsage.json for slot mode
         shader_texture_usage = None
-        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX'):
+        if not self.cfg.partial_export and self.cfg.texture_mode == 'SLOT':
             shader_usage_path = self.object_source_folder / 'ShaderTextureUsage.json'
             if not shader_usage_path.is_file():
                 raise ConfigError('object_source_folder', 'ShaderTextureUsage.json not found in object source folder. This file is required for slot mode export.')
@@ -419,12 +420,13 @@ class ModExporter:
             fill_missing_mesh_data=self.cfg.fill_missing_mesh_data,
             add_missing_vertex_groups=self.cfg.add_missing_vertex_groups,
             texture_mode=self.cfg.texture_mode,
+            slot_complex=self.cfg.slot_complex,
             shader_texture_usage=shader_texture_usage,
         )
         self.merged_object = object_merger.merged_object
 
         # Collect slot_textures from object_merger
-        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX'):
+        if not self.cfg.partial_export and self.cfg.texture_mode == 'SLOT':
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
             
         print(f'Merged object build time: {time.time() - start_time :.3f}s ({self.merged_object.vertex_count} vertices, {self.merged_object.index_count} indices)')
@@ -519,7 +521,7 @@ class ModExporter:
             comment_code=self.cfg.comment_ini,
             skeleton_scale=self.cfg.skeleton_scale,
             unrestricted_custom_shape_keys=self.cfg.unrestricted_custom_shape_keys,
-            slot_textures=self.slot_textures if self.cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX') else None,
+            slot_textures=self.slot_textures if self.cfg.texture_mode == 'SLOT' else None,
         )
 
         self.ini = ini_maker
@@ -548,7 +550,7 @@ class ModExporter:
                         continue
                     print(f'Copying {texture_path.name}...')
                     shutil.copy(texture.path, texture_path)
-            if self.cfg.texture_mode in ('SLOT_SIMPLE', 'SLOT_COMPLEX') and self.slot_textures:
+            if self.cfg.texture_mode == 'SLOT' and self.slot_textures:
                 self.write_slot_textures()
             # Write mod logo
             mod_logo_path = resolve_path(self.cfg.mod_logo)
