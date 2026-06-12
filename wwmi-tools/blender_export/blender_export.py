@@ -624,13 +624,58 @@ class ModExporter:
 
             print(f'Converting {dds_export_name} via TGA...')
 
-            # Save as TGA (save_copy=True avoids modifying the blend file's image settings)
+            # Tweak first pixel's alpha to force DDS encoder to preserve alpha channel.
+            # When alpha is purely 0 or 255, some DDS compressors (BC3/BC7) can
+            # optimize it away or collapse precision. Nudging the first pixel by
+            # 1/255 keeps visual change invisible while forcing real alpha data.
+            old_pixels = None
             try:
-                image.file_format = 'TARGA'
-                image.save(filepath=str(tga_path), save_copy=True)
+                pixels_tuple = image.pixels[:]
+                if len(pixels_tuple) >= 4:
+                    alpha_idx = 3
+                    a_float = pixels_tuple[alpha_idx]
+                    if a_float < 0.5:
+                        new_float = a_float + 0.05
+                    else:
+                        new_float = a_float - 0.05
+                    new_float = max(0.0, min(1.0, new_float))
+                    if abs(new_float - a_float) > 1e-6:
+                        old_pixels = pixels_tuple
+                        pixels_list = list(pixels_tuple)
+                        pixels_list[alpha_idx] = new_float
+                        image.pixels = pixels_list
+            except Exception as e:
+                print(f"Warning: Failed to nudge alpha for '{image.name}': {e}")
+                old_pixels = None
+
+            # Save as TGA using save_render to force RGBA output
+            try:
+                scene = bpy.context.scene
+                image_settings = scene.render.image_settings
+                old_format = image_settings.file_format
+                old_color_mode = image_settings.color_mode
+                try:
+                    image_settings.file_format = 'TARGA'
+                    image_settings.color_mode = 'RGBA'
+                    image.save_render(filepath=str(tga_path), scene=scene)
+                finally:
+                    image_settings.file_format = old_format
+                    image_settings.color_mode = old_color_mode
             except Exception as e:
                 print(f"Warning: Failed to save image '{image.name}' as TGA: {e}")
+                if old_pixels is not None:
+                    try:
+                        image.pixels = old_pixels
+                    except Exception:
+                        pass
                 continue
+
+            # Restore original image pixels so the blend file is not modified
+            if old_pixels is not None:
+                try:
+                    image.pixels = old_pixels
+                except Exception as e:
+                    print(f"Warning: Failed to restore pixels for '{image.name}': {e}")
 
             # Convert TGA to DDS using texconv
             cmd = [

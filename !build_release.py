@@ -18,7 +18,7 @@ class Version:
     def parse_version(self):
         with open(self.wwmi_ini_path, "r") as f:
 
-            version_pattern = re.compile(r'^"version": \((\d+), (\d+), (\d+)\),')
+            version_pattern = re.compile(r'^"version": \((\d+), (\d+), (\d+),?\s*(\d*)\)?,?')
 
             for line in f.readlines():
 
@@ -29,17 +29,18 @@ class Version:
 
                 result = list(result[0])
 
-                if len(result) != 3:
+                if len(result) < 3:
                     raise ValueError(f'Malformed WWMI Tools version!')
 
-                self.version = result
+                # Filter out empty 4th component
+                self.version = [v for v in result if v]
 
                 return
 
         raise ValueError(f'Failed to locate WWMI Tools version!')
 
     def __str__(self) -> str:
-        return f'{self.version[0]}.{self.version[1]}.{self.version[2]}'
+        return '.'.join(self.version)
 
     def as_float(self):
         return float(f'{self.version[0]}.{self.version[1]}{self.version[2]}')

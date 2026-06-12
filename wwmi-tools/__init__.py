@@ -9,10 +9,10 @@ sys.path.insert(0, str(Path(__file__).parent / 'libs'))
 
 bl_info = {
     "name": "WWMI Tools",
-    "version": (1, 7, 3),
+    "version": (1, 7, 3, 2),
     "wwmi_version": (1, 0, 0),
-    "blender": (3, 6, 0),
-    "author": "SpectrumQT, LeoTorreZ, SinsOfSeven, SilentNightSound, DarkStarSword",
+    "blender": (4, 5, 0),
+    "author": "SpectrumQT, LeoTorreZ, SinsOfSeven, SilentNightSound, DarkStarSword, XQFA",
     "location": "View3D > Sidebar > Tool Tab",
     "description": "Wuthering Waves modding toolkit",
     "category": "Object",
