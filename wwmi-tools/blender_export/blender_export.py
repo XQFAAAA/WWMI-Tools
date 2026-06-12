@@ -138,6 +138,21 @@ class ObjectMergerWWMI(ObjectMerger):
 
                         vs_value = ng_match.group(1)
                         ps_value = ng_match.group(2)
+
+                        # Check if this node group exists in ShaderTextureUsage.json
+                        if material_info['material_index'] is None:
+                            print(f"Warning: Node group '{node.node_tree.name}' has no material index. Skipping.")
+                            continue
+                        component_key = f"Component {material_info['material_index']}"
+                        vs_key = f"vs={vs_value}"
+                        ps_key = f"ps={ps_value}"
+                        if (component_key not in shader_texture_usage or
+                            vs_key not in shader_texture_usage.get(component_key, {}) or
+                            ps_key not in shader_texture_usage.get(component_key, {}).get(vs_key, {})):
+                            print(f"Warning: Node group '{node.node_tree.name}' not found in ShaderTextureUsage.json "
+                                  f"({component_key}, {vs_key}, {ps_key}). Skipping.")
+                            continue
+
                         node_group_info = {
                             'name': node.node_tree.name,
                             'vs': vs_value,
