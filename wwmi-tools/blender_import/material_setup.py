@@ -25,12 +25,12 @@ def setup_materials(object_source_folder, imported_objects):
             continue
 
         vs_ps_data = shader_usage[component_key]
-        _create_component_material(obj, component_key, object_source_folder, vs_ps_data)
+        _create_component_material(obj, component_key, object_source_folder, vs_ps_data, component_i)
 
     print(f"Material setup completed for {len(imported_objects)} components")
 
 
-def _create_component_material(obj, component_key, object_source_folder, vs_ps_data):
+def _create_component_material(obj, component_key, object_source_folder, vs_ps_data, component_i):
     """Create material and setup nodes for a single component."""
     mat = bpy.data.materials.new(component_key)
     mat.use_nodes = True
@@ -57,7 +57,7 @@ def _create_component_material(obj, component_key, object_source_folder, vs_ps_d
     tex_nodes_by_file = {}
     for vs_key, ps_dict in vs_ps_data.items():
         for ps_key, texture_slots in ps_dict.items():
-            ng_name = f'{vs_key}-{ps_key}'
+            ng_name = f'vb={object_source_folder.name}-C{component_i}-{ps_key}'
             ng = _get_or_create_node_group(ng_name, texture_slots)
 
             # Node group: diagonal placement (each lower-right of previous)

@@ -62,8 +62,8 @@ class ObjectMergerWWMI(ObjectMerger):
 
         # Regex for material name matching
         material_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
-        # Regex for node group name matching: vs=xxx-ps=xxx
-        node_group_pattern = re.compile(r'vs=([0-9a-f]+)-ps=([0-9a-f]+)')
+        # Regex for node group name matching: Cn-ps=xxx
+        node_group_pattern = re.compile(r'C(\d+)-ps=([0-9a-fA-F]+)')
 
         # Collect all unique images across all components for slot_textures
         all_images = {}  # key: dds_export_name, value: dict with image info
@@ -132,31 +132,33 @@ class ObjectMergerWWMI(ObjectMerger):
                         # Check if node group is muted (M key toggles mute)
                         if node.mute:
                             continue
-                        ng_match = node_group_pattern.match(node.node_tree.name)
+                        ng_match = node_group_pattern.search(node.node_tree.name)
                         if not ng_match:
                             continue
 
-                        vs_value = ng_match.group(1)
+                        component_index = ng_match.group(1)
                         ps_value = ng_match.group(2)
 
                         # Check if this node group exists in ShaderTextureUsage.json
-                        if material_info['material_index'] is None:
-                            print(f"Warning: Node group '{node.node_tree.name}' has no material index. Skipping.")
-                            continue
-                        component_key = f"Component {material_info['material_index']}"
-                        vs_key = f"vs={vs_value}"
+                        # Search through vs entries under the component for the matching ps key
+                        component_key = f"Component {component_index}"
                         ps_key = f"ps={ps_value}"
-                        if (component_key not in shader_texture_usage or
-                            vs_key not in shader_texture_usage.get(component_key, {}) or
-                            ps_key not in shader_texture_usage.get(component_key, {}).get(vs_key, {})):
+                        component_data = shader_texture_usage.get(component_key, {})
+                        found_vs_key = None
+                        for vs_key_iter, ps_dict in component_data.items():
+                            if ps_key in ps_dict:
+                                found_vs_key = vs_key_iter
+                                break
+                        if found_vs_key is None:
                             print(f"Warning: Node group '{node.node_tree.name}' not found in ShaderTextureUsage.json "
-                                  f"({component_key}, {vs_key}, {ps_key}). Skipping.")
+                                  f"({component_key}, {ps_key}). Skipping.")
                             continue
 
                         node_group_info = {
                             'name': node.node_tree.name,
-                            'vs': vs_value,
+                            'component_index': int(component_index),
                             'ps': ps_value,
+                            'vs_key': found_vs_key,
                             'inputs': [],
                         }
 
@@ -196,22 +198,17 @@ class ObjectMergerWWMI(ObjectMerger):
                             # Determine format from ShaderTextureUsage.json
                             format_enum = None
                             match_format_enum = None
-                            if material_info['material_index'] is not None:
-                                component_key = f"Component {material_info['material_index']}"
-                                if component_key in shader_texture_usage:
-                                    vs_key = f"vs={vs_value}"
-                                    ps_key = f"ps={ps_value}"
-                                    if vs_key in shader_texture_usage[component_key]:
-                                        if ps_key in shader_texture_usage[component_key][vs_key]:
-                                            slot_data = shader_texture_usage[component_key][vs_key][ps_key]
-                                            if input_name in slot_data:
-                                                format_str = slot_data[input_name].get('format', '')
-                                                if format_str:
-                                                    try:
-                                                        format_enum = DXGIFormatIndex[format_str]
-                                                        match_format_enum = format_enum.to_typeless()
-                                                    except KeyError:
-                                                        print(f"Warning: Unknown format '{format_str}' for {input_name}")
+                            component_key = f"Component {component_index}"
+                            ps_key = f"ps={ps_value}"
+                            slot_data = shader_texture_usage[component_key][found_vs_key][ps_key]
+                            if input_name in slot_data:
+                                format_str = slot_data[input_name].get('format', '')
+                                if format_str:
+                                    try:
+                                        format_enum = DXGIFormatIndex[format_str]
+                                        match_format_enum = format_enum.to_typeless()
+                                    except KeyError:
+                                        print(f"Warning: Unknown format '{format_str}' for {input_name}")
 
                             # Generate resource_name and dds_export_name: use hash if non-ASCII
                             sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', base_name)
