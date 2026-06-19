@@ -1,0 +1,423 @@
+namespace = {{ namespace }}
+
+{% set button_count = list_gui_objects | length %}
+[Constants]
+
+global $menu
+global $mouse_clicked
+global $mouse_hold
+global $mouse_press_in_header = 0
+global $mouse_press_in_list = 0
+global $is_dragging
+global $drag_start_x = 0
+global $drag_start_y = 0
+global persist $final_x_off = -1
+global persist $final_y_off = 0.05845
+global $press_effect = 0.002
+global $res_width = 0
+global $res_height = 0
+
+global $Button_is_hover
+global $Button_active = 0
+global $Button_number = 0
+global $Button_x = 0
+global $Button_y = 0
+
+global $UI_x_size = 0
+global $UI_y_size = 0
+
+; 按钮按下延迟触发
+global $is_button_pressed = 0
+global $button_press_x = 0
+global $button_press_y = 0
+global $button_pressed_number = 0
+
+; 滚动系统
+global $scroll_offset = 0
+global $is_scrolling = 0
+global $scroll_start_y = 0
+global $list_viewport_height = 600
+global $list_viewport_y_size = 0
+global $total_list_y_size = 0
+global $list_top_y = 0
+global $list_bottom_y = 0
+
+; 元素素宽度（固定归一化值）
+global $Element_x_size = 0
+global $Element_norm_width = 0.1875
+global $Element_width = 720
+
+; 图片实际像素高度（由导出时传递）
+global $Hearder_y_size = 0
+global $Hearder_height = {{ header_height }}
+
+global $Footer_y_size = 0
+global $Footer_height = {{ footer_height }}
+
+global $Button_y_size = 0
+global $Button_height = {{ button_height }}
+
+global $UI_Gap = 0.0045
+
+global $Button_amount = {{ button_count }}
+
+[KeyToggleUI]
+condition = $object_detected
+key = 0
+type = cycle
+$menu = 0,1
+
+[KeyMouse]
+condition = $menu
+key = VK_LBUTTON
+type = hold
+$mouse_clicked = 1
+$mouse_hold = 1
+
+[KeyMouseRB]
+condition = $menu
+key = VK_RBUTTON
+type = hold
+run = CommandListResetUIPosition
+
+[CommandListResetUIPosition]
+$final_x_off = 0.9 - $UI_x_size
+$final_y_off = 0.5 - $UI_y_size/2
+
+[Present]
+if $menu && $object_detected
+    run = CommandListPassWindowInfo
+    run = CommandListPassConstants
+
+    ; 默认 tint 白色，按钮会覆盖
+    x88 = 1
+    y88 = 1
+    z88 = 1
+    w88 = 1
+
+    ; 默认裁剪区域全屏，按钮绘制时覆盖
+    x89 = 0
+    y89 = 1
+
+    run = CommandListDrawUIElement
+    run = CommandListDrawUIHeader
+    run = CommandListDrawUIFooter
+
+{%- for obj in list_gui_objects %}
+    run = CommandListAddButton
+{%- endfor %}
+    $Button_number = 0
+    
+    run = CommandListCheckMouse
+endif
+
+[CommandListPassWindowInfo]
+$res_width = res_width
+$res_height = res_height
+
+[CommandListPassConstants]
+; 固定归一化宽度 0.1875，高度 = 宽度 * 屏幕比例 * 图片比例
+$Element_x_size = $Element_norm_width
+$Hearder_y_size = $Element_x_size * (res_width / res_height) * ($Hearder_height / $Element_width)
+$Footer_y_size = $Element_x_size * (res_width / res_height) * ($Footer_height / $Element_width)
+$Button_y_size = $Element_x_size * (res_width / res_height) * ($Button_height / $Element_width)
+
+; UI 总宽度 = 元素宽度
+$UI_x_size = $Element_x_size
+
+; 列表视口高度（固定像素 → 归一化）
+$list_viewport_y_size = $list_viewport_height / $res_height
+
+; 整个按钮列表的总高度（归一化）
+$total_list_y_size = ($Button_y_size + $UI_Gap * res_width / res_height) * $Button_amount + $UI_Gap * res_width / res_height
+
+; UI 高度 = 头部 + 视口 + 尾部
+$UI_y_size = $Hearder_y_size + $list_viewport_y_size + $Footer_y_size
+
+; 滚动偏移钳制
+if $scroll_offset < 0
+    $scroll_offset = 0
+endif
+if $total_list_y_size > $list_viewport_y_size
+    if $scroll_offset > $total_list_y_size - $list_viewport_y_size
+        $scroll_offset = $total_list_y_size - $list_viewport_y_size
+    endif
+else
+    $scroll_offset = 0
+endif
+
+; 列表区域边界
+$list_top_y = $final_y_off + $Hearder_y_size
+$list_bottom_y = $list_top_y + $list_viewport_y_size
+
+if $final_x_off == -1
+    $final_x_off = 0.5 - $UI_x_size / 2
+endif
+
+[CommandListSetButtonCondition]
+{%- for obj in list_gui_objects %}
+{%- set btn_num = loop.index %}
+{%- if btn_num == 1 %}
+if $Button_number == {{ btn_num }}
+{%- else %}
+else if $Button_number == {{ btn_num }}
+{%- endif %}
+    {{ obj.draw_var }} = 1 - {{ obj.draw_var }}
+{%- endfor %}
+endif
+
+[CommandListSetButtonActive]
+$Button_active = 0
+{%- for obj in list_gui_objects %}
+{%- set btn_num = loop.index %}
+{%- set var_name = obj.draw_var %}
+{%- if btn_num == 1 %}
+if $Button_number == {{ btn_num }}
+{%- else %}
+else if $Button_number == {{ btn_num }}
+{%- endif %}
+    if {{ var_name }}
+        $Button_active = 1
+    endif
+{%- endfor %}
+endif
+
+[CommandListSetButtonIcon]
+{%- for obj in list_gui_objects %}
+{%- set btn_num = loop.index %}
+{%- if btn_num == 1 %}
+if $Button_number == {{ btn_num }}
+{%- else %}
+else if $Button_number == {{ btn_num }}
+{%- endif %}
+    ps-t100 = ResourceButton_Icon{{ btn_num }}
+{%- endfor %}
+endif
+
+[CommandListAddButton]
+$Button_number = $Button_number + 1
+if $Button_number <= $Button_amount
+    run = CommandListButtonPosition
+    run = CommandListCheckButtonHover
+    run = CommandListDrawButton
+endif
+
+[CommandListButtonPosition]
+$Button_x = $final_x_off
+$Button_y = $final_y_off + $Hearder_y_size + ($Button_y_size + $UI_Gap * res_width / res_height) * ($Button_number - 1) + $UI_Gap * res_width / res_height - $scroll_offset
+
+[CommandListCheckButtonHover]
+$Button_is_hover = 0
+if $Button_y + $Button_y_size > $list_top_y + $UI_Gap && $Button_y < $list_bottom_y - $UI_Gap
+    if cursor_y > $Button_y && cursor_y < $Button_y + $Button_y_size
+        if cursor_x > $Button_x && cursor_x < $Button_x + $Element_x_size
+            $Button_is_hover = 1
+            if $mouse_clicked && !$is_button_pressed && !$is_scrolling
+                $is_button_pressed = 1
+                $button_press_x = cursor_x
+                $button_press_y = cursor_y
+                $button_pressed_number = $Button_number
+            endif
+        endif
+    endif
+endif
+
+[CommandListCheckMouse]
+; Track where mouse was first pressed down (check before clearing click event)
+if $mouse_clicked
+    if cursor_x > $final_x_off && cursor_x < $final_x_off + $UI_x_size
+        if cursor_y > $final_y_off && cursor_y < $final_y_off + $Hearder_y_size
+            $mouse_press_in_header = 1
+        else if cursor_y > $list_top_y && cursor_y < $list_bottom_y
+            $mouse_press_in_list = 1
+        endif
+    endif
+endif
+; Reset click event
+$mouse_clicked = 0
+; Reset press flags on release
+if !$mouse_hold
+    $mouse_press_in_header = 0
+    $mouse_press_in_list = 0
+    $is_scrolling = 0
+endif
+
+; 按钮按下延迟触发：按住不动→等待，移动→滚动，释放→触发
+if $is_button_pressed
+    if $mouse_hold
+        if cursor_x != $button_press_x || cursor_y != $button_press_y
+            $is_button_pressed = 0
+            $is_scrolling = 1
+            $scroll_start_y = cursor_y
+            $mouse_press_in_list = 1
+        endif
+    else
+        $Button_number = $button_pressed_number
+        run = CommandListSetButtonCondition
+        $Button_number = 0
+        $is_button_pressed = 0
+    endif
+else if $is_dragging == 1
+    if $mouse_hold
+        run = CommandListMoveUIElement
+    else
+        $is_dragging = 0
+    endif
+else if $mouse_press_in_header
+    ; 头部区域拖拽 UI 窗口
+    if $mouse_hold
+        run = CommandListStartDrag
+        run = CommandListMoveUIElement
+        $is_scrolling = 0
+    else
+        $is_dragging = 0
+    endif
+else if $mouse_press_in_list
+    ; 列表区域滚动
+    if $mouse_hold && !$Button_is_hover
+        run = CommandListScroll
+    else
+        $is_scrolling = 0
+    endif
+endif
+
+[CommandListDrawButton]
+if $Button_y + $Button_y_size > $list_top_y + $UI_Gap && $Button_y < $list_bottom_y - $UI_Gap
+x87 = $Element_x_size
+y87 = $Button_y_size
+z87 = $Button_x
+w87 = $Button_y
+
+; 裁剪区域
+x89 = $list_top_y + $UI_Gap
+y89 = $list_bottom_y - $UI_Gap
+
+; 1. 背景 - 不 tint（保持默认白色，显示原始 0.5 黑色）
+ps-t100 = ResourceButtonBg
+run = CustomShaderElement
+
+; 2. 设置边框和文本的颜色 tint
+run = CommandListSetButtonActive
+if $Button_is_hover
+    x88 = 1
+    y88 = 1
+    z88 = 1
+    w88 = 1
+else if $Button_active
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else
+    x88 = 0.6745
+    y88 = 0.7294
+    z88 = 0.7333
+    w88 = 1
+endif
+
+; 边框
+ps-t100 = ResourceButtonBorder
+run = CustomShaderElement
+
+; 文本
+run = CommandListSetButtonIcon
+run = CustomShaderElement
+endif
+
+[CommandListDrawUIElement]
+x87 = $UI_x_size
+y87 = $UI_y_size
+z87 = $final_x_off
+w87 = $final_y_off
+ps-t100 = ResourceUIBackground
+run = CustomShaderElement
+
+[CommandListDrawUIHeader]
+x87 = $Element_x_size
+y87 = $Hearder_y_size
+z87 = $final_x_off
+w87 = $final_y_off
+ps-t100 = ResourceUIHeader
+run = CustomShaderElement
+
+[CommandListDrawUIFooter]
+x87 = $Element_x_size
+y87 = $Footer_y_size
+z87 = $final_x_off
+w87 = $final_y_off + $UI_y_size - $Footer_y_size
+ps-t100 = ResourceUIFooter
+run = CustomShaderElement
+
+[CommandListStartDrag]
+if $is_dragging == 0
+    $drag_start_x = cursor_x - $final_x_off
+    $drag_start_y = cursor_y - $final_y_off
+    $is_dragging = 1
+endif
+
+[CommandListMoveUIElement]
+if $is_dragging == 1
+    if $mouse_hold
+        $final_x_off = cursor_x - $drag_start_x
+        $final_y_off = cursor_y - $drag_start_y
+
+        if $final_x_off < 0
+            $final_x_off = 0
+        endif
+        if $final_x_off > 1 - $UI_x_size
+            $final_x_off = 1 - $UI_x_size
+        endif
+
+        if $final_y_off < 0
+            $final_y_off = 0
+        endif
+        if $final_y_off > 1 - $UI_y_size
+            $final_y_off = 1 - $UI_y_size
+        endif
+    else
+        $is_dragging = 0
+    endif
+endif
+
+[CommandListScroll]
+if $is_scrolling == 0
+    $scroll_start_y = cursor_y
+    $is_scrolling = 1
+else
+    $scroll_offset = $scroll_offset + $scroll_start_y - cursor_y
+    $scroll_start_y = cursor_y
+endif
+
+[CustomShaderElement]
+hs = null
+ds = null
+gs = null
+cs = null
+run = BuiltInCommandListUnbindAllRenderTargets
+vs = res/draw_2d.hlsl
+ps = res/draw_2d.hlsl
+blend = ADD SRC_ALPHA INV_SRC_ALPHA
+cull = none
+topology = triangle_strip
+o0 = set_viewport bb
+Draw = 4,0
+
+[ResourceUIBackground]
+filename = res/Background.png
+
+[ResourceUIHeader]
+filename = res/Header.png
+
+[ResourceUIFooter]
+filename = res/Footer.png
+
+[ResourceButtonBorder]
+filename = res/ButtonBorder.png
+
+[ResourceButtonBg]
+filename = res/ButtonBg.png
+
+{%- for obj in list_gui_objects %}
+[ResourceButton_Icon{{ loop.index }}]
+filename = res/{{ obj.draw_var | replace('$', '') }}.png
+{%- endfor %}

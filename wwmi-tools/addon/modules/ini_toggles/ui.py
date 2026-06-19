@@ -25,6 +25,8 @@ class WWMI_TOOLS_PT_SidePanelIniToggles(bpy.types.Panel):
     
         layout.prop(cfg, 'use_ini_toggles')
         
+        layout.prop(cfg, 'use_list_gui')
+
         layout.operator("wwmi_tools.open_ini_toggles_import_export_editor")
 
         layout.prop(cfg.ini_toggles, 'hide_empty_states')

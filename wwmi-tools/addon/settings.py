@@ -408,6 +408,12 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         default=False,
     ) # type: ignore
 
+    use_list_gui: BoolProperty(
+        name="List GUI",
+        description="Generate GUI folder with ListGUI.ini, UI images and hlsl shader for in-game object toggle menu",
+        default=False,
+    ) # type: ignore
+
     ini_toggles: bpy.props.PointerProperty(
         type=IniToggles,
     ) # type: ignore

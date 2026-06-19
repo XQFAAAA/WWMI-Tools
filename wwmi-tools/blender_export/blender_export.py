@@ -2,9 +2,10 @@ import time
 import shutil
 import json
 import re
-import hashlib
 import os
 import subprocess
+
+from ..libs.unidecode import unidecode
 
 from typing import List, Dict, Union
 from dataclasses import dataclass, field
@@ -210,13 +211,14 @@ class ObjectMergerWWMI(ObjectMerger):
                                     except KeyError:
                                         print(f"Warning: Unknown format '{format_str}' for {input_name}")
 
-                            # Generate resource_name and dds_export_name: use hash if non-ASCII
+                            # Generate resource_name and dds_export_name: use unidecode if non-ASCII
                             sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', base_name)
                             has_non_ascii = any(ord(c) > 127 for c in base_name)
                             if has_non_ascii:
-                                name_hash = hashlib.sha256(base_name.encode('utf-8')).hexdigest()[:16]
-                                dds_export_name = f'{name_hash}.dds'
-                                resource_name = name_hash
+                                ascii_name = unidecode(base_name).replace(' ', '')
+                                sanitized_ascii = re.sub(r'[^a-zA-Z0-9_\-]', '_', ascii_name)
+                                dds_export_name = sanitized_ascii + '.dds'
+                                resource_name = sanitized_ascii
                             else:
                                 dds_export_name = base_name + '.dds'
                                 resource_name = sanitized
@@ -573,6 +575,10 @@ class ModExporter:
             if self.cfg.write_ini:
                 self.ini.write(ini_path=self.mod_output_folder / 'mod.ini')
                 # self.ini.write(ini_path=self.mod_output_folder / 'mod_old.ini', ini_string=self.ini.build_old())
+
+            # Write ListGUI
+            if self.cfg.use_list_gui:
+                self.ini.write_list_gui(self.mod_output_folder)
                 
         print(f'Disk write time: {time.time() - start_time :.3f}s')
 

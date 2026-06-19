@@ -1,5 +1,12 @@
 
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'libs'))
+from unidecode import unidecode
+
+
 class TextFormatter:
     
     @staticmethod
@@ -26,6 +33,7 @@ class TextFormatter:
                 name = name.name
             else:
                 name = str(name)
+        name = unidecode(name).replace(' ', '')
         name = name.replace('$', '').replace('-', ' ').replace('.', ' ').replace('_', ' ')
         parts = list(map(str.lower, map(str.strip, name.split(' '))))
         return parts

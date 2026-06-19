@@ -25,6 +25,7 @@ from .texture_collector import Texture
 from .text_formatter import TextFormatter
 
 from ..libs.jinja2 import Template, TemplateSyntaxError, UndefinedError
+from ..libs.unidecode import unidecode
 
 
 chached_template: Optional[str] = None
@@ -45,9 +46,13 @@ class IniMaker:
     skeleton_scale: float
     slot_textures: list = None
     formatter: TextFormatter = TextFormatter()
+    # Generated
+    namespace: str = field(init=False)
     # Output
     ini_string: str = field(init=False)
     
+    def __post_init__(self):
+        self.namespace = 'Mods\\' + unidecode(self.mod_info.mod_name).replace(' ', '')
     def start_live_write(self, context, cfg):
         thread = Thread(target=self.live_write_thread, args=(context, cfg))
         thread.start()
@@ -235,3 +240,125 @@ class IniMaker:
                 return True
 
             return False
+
+    def build_list_gui_ini(self, header_height=102, footer_height=60, button_height=75):
+        list_gui_template_path = Path(os.path.realpath(__file__)).parent.parent / 'templates' / 'list_gui.ini.j2'
+        with open(list_gui_template_path, 'r', encoding='utf-8') as f:
+            template_string = f.read()
+
+        # Collect all objects for ListGUI buttons (skip empty meshes with <= 4 vertices)
+        list_gui_objects = []
+        for component in self.merged_object.components:
+            for obj in component.objects:
+                if obj.vertex_count <= 4:
+                    continue
+                list_gui_objects.append({
+                    'name': obj.name,
+                    'draw_var': self.formatter.format_ini_drawvar(obj.name),
+                })
+
+        template = Template(template_string)
+        rendered_string = template.render(
+            list_gui_objects=list_gui_objects,
+            header_height=header_height,
+            footer_height=footer_height,
+            button_height=button_height,
+            **vars(self)
+        )
+        result = ''.join([line + '\n' for line in rendered_string.split('\n') if not line.strip().startswith(';DEL')])
+        return result
+
+    def write_list_gui(self, mod_output_folder: Path):
+        try:
+            from PIL import Image, ImageDraw as _ImageDraw
+            from .text_to_image import Text2Image, generate_solid_background, generate_button_border, generate_button_background
+        except ImportError as e:
+            raise ImportError(
+                'Pillow (PIL) is required for List GUI image generation. '
+                'Install it in Blender\'s Python: '
+                'blender -b --python-expr "import subprocess; subprocess.check_call([..., \'-m\', \'pip\', \'install\', \'pillow\'])"'
+            ) from e
+        import shutil as shutil_mod
+
+        gui_folder = mod_output_folder / 'GUI'
+        res_folder = gui_folder / 'res'
+        gui_folder.mkdir(parents=True, exist_ok=True)
+        res_folder.mkdir(parents=True, exist_ok=True)
+
+        # Copy hlsl from templates
+        hlsl_src = Path(os.path.realpath(__file__)).parent.parent / 'templates' / 'draw_2d.hlsl'
+        hlsl_dst = res_folder / 'draw_2d.hlsl'
+        shutil_mod.copy(hlsl_src, hlsl_dst)
+
+        # Generate background image (fully transparent)
+        generate_solid_background(str(res_folder / 'Background.png'))
+
+        button_w = 720
+        button_h = 108
+
+        # Generate shared button border and background (reused across all buttons)
+        generate_button_border(str(res_folder / 'ButtonBorder.png'), button_w, button_h, border_thickness=4)
+        generate_button_background(str(res_folder / 'ButtonBg.png'), button_w, button_h, border_thickness=4)
+
+        # Text2Image: header/footer (transparent bg, no border, fixed width)
+        t2i_header = Text2Image(
+            font_path="H7GBK-Heavy.ttf",
+            text_color=(249, 255, 255, 255),
+            border_thickness=0,
+            bg_color=(0, 0, 0, 0),
+            font_size=48,
+            padding=(16, 16, 24, 16),
+        )
+        # Text2Image: buttons (transparent background, no border, just text)
+        t2i_button_text = Text2Image(
+            font_path="H7GBK-Heavy.ttf",
+            bg_color=(0, 0, 0, 0),
+            border_thickness=0,
+            font_size=34,
+            padding=(10, 10, 24, 12),
+        )
+
+        # Helper to strip "Component " prefix from object names for images
+        import re
+        def strip_component_prefix(name):
+            name = re.sub(r'^component[_ ]?', '', name, flags=re.IGNORECASE)
+            return name
+
+        # Header image (Mod Name), split by "-", left-aligned in fixed width
+        header_name = self.mod_info.mod_name.replace('-', '\n')
+        header_path = str(res_folder / 'Header.png')
+        header_w, header_h = t2i_header.generate_fixed(header_name, header_path, button_w, text_align='left', line_spacing=0.5)
+        # Draw bottom border line on header
+        header_im = Image.open(header_path)
+        _draw = _ImageDraw.Draw(header_im)
+        _draw.line([(2, header_h - 3), (button_w - 2, header_h - 3)], fill=(61, 78, 90, 255), width=5)
+        header_im.save(header_path)
+
+        # Footer image (Author Name), right-aligned in fixed width
+        footer_path = str(res_folder / 'Footer.png')
+        footer_w, footer_h = t2i_header.generate_fixed(self.mod_info.mod_author, footer_path, button_w, text_align='right', line_spacing=0.5)
+        # Draw top border line on footer
+        footer_im = Image.open(footer_path)
+        _draw = _ImageDraw.Draw(footer_im)
+        _draw.line([(2, 2), (button_w - 2, 2)], fill=(61, 78, 90, 255), width=5)
+        footer_im.save(footer_path)
+
+        # Button text images (one per object) - fixed size, transparent bg, no border
+        for component in self.merged_object.components:
+            for obj in component.objects:
+                if obj.vertex_count <= 4:
+                    continue
+                icon_name = self.formatter.format_ini_drawvar(obj.name).replace('$', '')
+                display_name = strip_component_prefix(obj.name)
+                t2i_button_text.generate_fixed(display_name, str(res_folder / f'{icon_name}.png'), button_w, button_h)
+
+        # Write ListGUI.ini
+        list_gui_ini = self.build_list_gui_ini(
+            header_height=header_h,
+            footer_height=footer_h,
+            button_height=button_h,
+        )
+        list_gui_path = gui_folder / 'ListGUI.ini'
+        with open(list_gui_path, 'w', encoding='utf-8') as f:
+            print(f'Writing {list_gui_path.name}...')
+            f.write(list_gui_ini)
