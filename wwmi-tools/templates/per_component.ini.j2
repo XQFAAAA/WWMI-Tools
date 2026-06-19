@@ -1,3 +1,4 @@
+namespace = {{ namespace }}
 ; WWMI BETA-8 INI
 
 {%- macro note(text) %}{% if comment_code %}; {{ text }}{% else %};DEL{% endif %}{% endmacro %}
@@ -51,7 +52,7 @@ global persist {{ formatter.format_ini_swapvar(var.name) }} = {{ var.default_sta
 ; Per-object state vars
 {%- for component in extracted_object.components %}
 {%- for obj in merged_object.components[loop.index0].objects %}
-global {{ formatter.format_ini_drawvar(obj.name) }} = 1
+global persist {{ formatter.format_ini_drawvar(obj.name) }} = 1
 {%- endfor %}
 {%- endfor %}
 {%- endif %}
