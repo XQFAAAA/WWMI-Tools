@@ -270,13 +270,12 @@ class IniMaker:
 
     def write_list_gui(self, mod_output_folder: Path):
         try:
-            from PIL import Image, ImageDraw as _ImageDraw
             from .text_to_image import Text2Image, generate_solid_background, generate_button_border, generate_button_background
         except ImportError as e:
             raise ImportError(
-                'Pillow (PIL) is required for List GUI image generation. '
-                'Install it in Blender\'s Python: '
-                'blender -b --python-expr "import subprocess; subprocess.check_call([..., \'-m\', \'pip\', \'install\', \'pillow\'])"'
+                'Pillow (PIL) is required for List GUI image generation but auto-install failed. '
+                'Try manually: open Blender\'s Python console and run: '
+                'import subprocess; subprocess.check_call([__import__(\"sys\").executable, \"-m\", \"pip\", \"install\", \"pillow\"])'
             ) from e
         import shutil as shutil_mod
 

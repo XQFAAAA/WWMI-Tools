@@ -1,5 +1,14 @@
 from typing import Tuple, List
-from PIL import Image, ImageDraw, ImageFont
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except ImportError:
+    import sys
+    import subprocess
+    import site
+    target = site.getsitepackages()[1]
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pillow', '--target', target])
+    from PIL import Image, ImageDraw, ImageFont
 
 
 def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
