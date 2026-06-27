@@ -270,6 +270,7 @@ class IniMaker:
 
     def write_list_gui(self, mod_output_folder: Path):
         try:
+            from PIL import Image, ImageDraw
             from .text_to_image import Text2Image, generate_solid_background, generate_button_border, generate_button_background
         except ImportError as e:
             raise ImportError(
@@ -329,7 +330,7 @@ class IniMaker:
         header_w, header_h = t2i_header.generate_fixed(header_name, header_path, button_w, text_align='left', line_spacing=0.5)
         # Draw bottom border line on header
         header_im = Image.open(header_path)
-        _draw = _ImageDraw.Draw(header_im)
+        _draw = ImageDraw.Draw(header_im)
         _draw.line([(2, header_h - 3), (button_w - 2, header_h - 3)], fill=(61, 78, 90, 255), width=5)
         header_im.save(header_path)
 
@@ -338,7 +339,7 @@ class IniMaker:
         footer_w, footer_h = t2i_header.generate_fixed(self.mod_info.mod_author, footer_path, button_w, text_align='right', line_spacing=0.5)
         # Draw top border line on footer
         footer_im = Image.open(footer_path)
-        _draw = _ImageDraw.Draw(footer_im)
+        _draw = ImageDraw.Draw(footer_im)
         _draw.line([(2, 2), (button_w - 2, 2)], fill=(61, 78, 90, 255), width=5)
         footer_im.save(footer_path)
 
