@@ -61,13 +61,16 @@ class ObjectMergerWWMI(ObjectMerger):
         shader_texture_usage = self._shader_texture_usage
         is_simple = not self._slot_complex
 
-        # Regex for material name matching
-        material_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
+        # Regex for object/material name to extract component id
+        component_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
         # Regex for node group name matching: Cn-ps=xxx
         node_group_pattern = re.compile(r'C(\d+)-ps=([0-9a-fA-F]+)')
 
         # Collect all unique images across all components for slot_textures
         all_images = {}  # key: dds_export_name, value: dict with image info
+
+        # Warnings to show after export
+        self._slot_warnings = []
 
         for component in self.components:
             component_match_formats = {}  # key: match_format enum value, value: dict with match_format info
@@ -75,56 +78,36 @@ class ObjectMergerWWMI(ObjectMerger):
 
             for temp_object in component.objects:
                 obj = temp_object.object
+
+                # Get component id from object name
+                obj_name = obj.name
+                if obj_name.startswith('TEMP_'):
+                    obj_name = obj_name[5:]
+                obj_match = component_pattern.match(obj_name)
+                if not obj_match:
+                    continue
+                obj_component_id = obj_match.group(1)
+
+                # Use object's component id to look up ShaderTextureUsage.json
+                component_key = f"Component {obj_component_id}"
+                component_data = shader_texture_usage.get(component_key, {})
+                if not component_data:
+                    continue
+
+                # Track node groups by ps key for duplicate detection (last overwrites)
+                # Same ps under the same Component should only be processed once
+                seen_node_group_keys = {}  # key: ps_value, value: index in material_info['node_groups']
+
                 material_info = {
                     'material_name': None,
-                    'material_index': None,
+                    'material_index': obj_component_id,
                     'node_groups': [],
                 }
 
-                # Find material matching component pattern
-                matched_material = None
-                if obj.data.materials:
-                    for mat in obj.data.materials:
-                        if mat is None:
-                            continue
-                        match = material_pattern.match(mat.name)
-                        if match:
-                            if matched_material is not None:
-                                print(f"Warning: Multiple materials matching component pattern found on '{obj.name}', using first match '{matched_material.name}'")
-                                break
-                            matched_material = mat
-                            material_info['material_name'] = mat.name
-                            material_info['material_index'] = match.group(1)
-
-                            # Check material Component index matches object Component index
-                            obj_name = obj.name
-                            if obj_name.startswith('TEMP_'):
-                                obj_name = obj_name[5:]
-                            obj_match = material_pattern.match(obj_name)
-                            if obj_match:
-                                obj_component_id = obj_match.group(1)
-                                mat_component_id = match.group(1)
-                                if obj_component_id != mat_component_id:
-                                    raise ConfigError('object_source_folder',
-                                        f"Material Component index ({mat_component_id}) doesn't match object Component index ({obj_component_id})!\n"
-                                        f"Object: '{obj_name}', Material: '{mat.name}'")
-
-                # In simple mode, skip if component already has material collected
-                if is_simple and component_material_collected:
-                    continue
-
-                # Find node groups in the matched material (or all materials if no match)
-                if matched_material is not None and matched_material.use_nodes:
-                    node_group_materials = [matched_material]
-                elif obj.data.materials:
-                    node_group_materials = [
-                        mat for mat in obj.data.materials
-                        if mat is not None and mat.use_nodes
-                    ]
-                else:
-                    node_group_materials = []
-
-                for mat in node_group_materials:
+                # Scan all materials on this object for matching node groups
+                for mat in obj.data.materials:
+                    if mat is None or not mat.use_nodes:
+                        continue
                     for node in mat.node_tree.nodes:
                         if node.type != 'GROUP':
                             continue
@@ -137,27 +120,24 @@ class ObjectMergerWWMI(ObjectMerger):
                         if not ng_match:
                             continue
 
-                        component_index = ng_match.group(1)
+                        ng_component_index = ng_match.group(1)
                         ps_value = ng_match.group(2)
 
-                        # Check if this node group exists in ShaderTextureUsage.json
-                        # Search through vs entries under the component for the matching ps key
-                        component_key = f"Component {component_index}"
+                        # Check if this node group exists in ShaderTextureUsage.json for this component
                         ps_key = f"ps={ps_value}"
-                        component_data = shader_texture_usage.get(component_key, {})
                         found_vs_key = None
                         for vs_key_iter, ps_dict in component_data.items():
                             if ps_key in ps_dict:
                                 found_vs_key = vs_key_iter
                                 break
                         if found_vs_key is None:
-                            print(f"Warning: Node group '{node.node_tree.name}' not found in ShaderTextureUsage.json "
+                            print(f"Warning: Node group '{node.node_tree.name}' not found in ShaderTextureUsage files "
                                   f"({component_key}, {ps_key}). Skipping.")
                             continue
 
                         node_group_info = {
                             'name': node.node_tree.name,
-                            'component_index': int(component_index),
+                            'component_index': int(ng_component_index),
                             'ps': ps_value,
                             'vs_key': found_vs_key,
                             'inputs': [],
@@ -199,8 +179,6 @@ class ObjectMergerWWMI(ObjectMerger):
                             # Determine format from ShaderTextureUsage.json
                             format_enum = None
                             match_format_enum = None
-                            component_key = f"Component {component_index}"
-                            ps_key = f"ps={ps_value}"
                             slot_data = shader_texture_usage[component_key][found_vs_key][ps_key]
                             if input_name in slot_data:
                                 format_str = slot_data[input_name].get('format', '')
@@ -267,7 +245,22 @@ class ObjectMergerWWMI(ObjectMerger):
                                 }
 
                         if node_group_info['inputs']:
-                            material_info['node_groups'].append(node_group_info)
+                            if ps_value in seen_node_group_keys:
+                                # Same ps under this Component: overwrite (keep last)
+                                old_index = seen_node_group_keys[ps_value]
+                                old_ng = material_info['node_groups'][old_index]
+                                self._slot_warnings.append(
+                                    f"Duplicate ps={ps_value} on object '{obj_name}' "
+                                    f"for Component {obj_component_id}: '{node_group_info['name']}' overwrites '{old_ng['name']}'"
+                                )
+                                material_info['node_groups'][old_index] = node_group_info
+                            else:
+                                seen_node_group_keys[ps_value] = len(material_info['node_groups'])
+                                material_info['node_groups'].append(node_group_info)
+
+                # In simple mode, skip if component already has material collected
+                if is_simple and component_material_collected:
+                    continue
 
                 if is_simple:
                     # Simple mode: attach material to component (only first)
@@ -331,11 +324,13 @@ class ModExporter:
     textures: List[Texture] = {}
     ini: IniMaker
     slot_textures: List[Dict] = None
+    _slot_warnings: List[str] = None
 
     def __init__(self, context, cfg, excluded_buffers: List[str]):
         self.context = context
         self.cfg = cfg
         self.excluded_buffers = excluded_buffers
+        self._slot_warnings = []
 
         self.object_source_folder = resolve_path(cfg.object_source_folder)
         self.mod_output_folder = resolve_path(cfg.mod_output_folder)
@@ -409,17 +404,64 @@ class ModExporter:
         if self.cfg.component_collection not in list(get_scene_collections()):
             raise ConfigError('component_collection', f'Collection "{self.cfg.component_collection.name}" is not a member of "Scene Collection"!')
 
+    @staticmethod
+    def _merge_shader_texture_usage(dicts):
+        """Merge multiple ShaderTextureUsage dicts. First dict has highest priority.
+        For each Component, ps keys from the primary dict take precedence;
+        ps keys only present in fallback dicts are added.
+        """
+        if not dicts:
+            return {}
+        result = json.loads(json.dumps(dicts[0]))  # deep copy primary
+        for fallback in dicts[1:]:
+            for comp_key, comp_data in fallback.items():
+                if comp_key not in result:
+                    result[comp_key] = json.loads(json.dumps(comp_data))
+                    continue
+                # Collect all ps keys already in result for this component
+                existing_ps = set()
+                for vs_data in result[comp_key].values():
+                    existing_ps.update(vs_data.keys())
+                # Add fallback ps entries not already present
+                for vs_key, ps_dict in comp_data.items():
+                    for ps_key, slot_data in ps_dict.items():
+                        if ps_key not in existing_ps:
+                            result[comp_key].setdefault(vs_key, {})[ps_key] = slot_data
+                            existing_ps.add(ps_key)
+        return result
+
+    def _load_and_merge_shader_texture_usage(self):
+        """Find all ShaderTextureUsage*.json files, load and merge them.
+        ShaderTextureUsage.json has highest priority, others are fallbacks.
+        """
+        source_folder = self.object_source_folder
+        files = sorted(source_folder.glob('ShaderTextureUsage*.json'))
+        if not files:
+            raise ConfigError('object_source_folder',
+                'No ShaderTextureUsage*.json found in object source folder. '
+                'ShaderTextureUsage.json is required for slot mode export.')
+        # Ensure ShaderTextureUsage.json is first
+        primary_path = source_folder / 'ShaderTextureUsage.json'
+        primary_files = [f for f in files if f == primary_path]
+        other_files = [f for f in files if f != primary_path]
+        ordered_files = primary_files + other_files
+        if not primary_files:
+            raise ConfigError('object_source_folder',
+                'ShaderTextureUsage.json not found in object source folder. '
+                'This file is required for slot mode export.')
+        dicts = []
+        for fpath in ordered_files:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                dicts.append(json.load(f))
+        return self._merge_shader_texture_usage(dicts)
+
     def build_merged_object(self):
         start_time = time.time()
         
-        # Read ShaderTextureUsage.json for slot mode
+        # Read ShaderTextureUsage*.json files for slot mode
         shader_texture_usage = None
         if not self.cfg.partial_export and self.cfg.texture_mode == 'SLOT':
-            shader_usage_path = self.object_source_folder / 'ShaderTextureUsage.json'
-            if not shader_usage_path.is_file():
-                raise ConfigError('object_source_folder', 'ShaderTextureUsage.json not found in object source folder. This file is required for slot mode export.')
-            with open(shader_usage_path, 'r', encoding='utf-8') as f:
-                shader_texture_usage = json.load(f)
+            shader_texture_usage = self._load_and_merge_shader_texture_usage()
 
         object_merger = ObjectMergerWWMI(
             extracted_object=self.extracted_object,
@@ -439,9 +481,10 @@ class ModExporter:
         )
         self.merged_object = object_merger.merged_object
 
-        # Collect slot_textures from object_merger
+        # Collect slot_textures and slot_warnings from object_merger
         if not self.cfg.partial_export and self.cfg.texture_mode == 'SLOT':
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
+            self._slot_warnings = getattr(object_merger, '_slot_warnings', [])
             
         print(f'Merged object build time: {time.time() - start_time :.3f}s ({self.merged_object.vertex_count} vertices, {self.merged_object.index_count} indices)')
 
@@ -768,3 +811,8 @@ class ModExporter:
 def blender_export(operator, context, cfg, excluded_buffers):
     mod_exporter = ModExporter(context, cfg, excluded_buffers)
     mod_exporter.export_mod()
+
+    # Report slot mode warnings
+    slot_warnings = getattr(mod_exporter, '_slot_warnings', [])
+    if slot_warnings:
+        operator.report({'WARNING'}, "Slot mode warnings:\n" + "\n".join(slot_warnings))
