@@ -10,6 +10,10 @@
 
 ![alt text](README-image/PixPin_2026-06-06_22-36-59.png)
 
+可以开启Skip Dirty Slot，只保留PSSetShaderResources显式绑定的贴图
+
+因为渲染管线中的资源绑定（Resource Binding）是状态持久的（Stateful/Persistent），只要你不显式解绑或覆盖，旧的绑定状态就会一直保留。所以，开启Skip Dirty Slot后，只保留PSSetShaderResources显式绑定的贴图，其他slot的贴图会被过滤掉
+
 ## Import Object
 
 当选择Slot时
@@ -43,11 +47,8 @@ Export Mod后，在Textures中，会看到导出的图片，如果图片名称�
 ![alt text](README-image/PixPin_2026-06-06_23-11-22.png)
 
 ## 注意
-材质名应当和物体名的Component序号一致，比如这样就是不对的
 
-![alt text](README-image/PixPin_2026-06-06_22-50-10.png)
-
-不要修改vs=ps节点组的名称，因为要去ShaderTextureUsage.json中查找
+不要修改节点组的名称，因为要去ShaderTextureUsage.json中查找
 
 大部分dds格式都是其对应的TYPELESS，除非它被其他mod截取
 但是少部分dds格式不是这样，比如R8，如果你发现有其他奇怪的格式需要特殊处理，请告诉我
