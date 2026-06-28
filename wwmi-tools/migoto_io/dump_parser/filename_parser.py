@@ -272,6 +272,9 @@ class CallDescriptor:
     def __init__(self, call_id):
         self.id = call_id
         self.parameters = {}
+        # 该 call 中由 PSSetShaderResources 显式绑定的 PS 贴图槽位集合
+        # 由 Dump 从 FrameDumpLog 拷贝而来，用于过滤脏状态残留槽位
+        self.ps_texture_slots = set()
         self.shaders = {}
         self.resources = {}
 

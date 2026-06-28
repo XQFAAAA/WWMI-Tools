@@ -380,7 +380,8 @@ def extract_frame_data(cfg):
 
     # Extract mesh objects data from data view
     data_extractor = DataExtractor(
-        call_branches=frame_data.call_branches
+        call_branches=frame_data.call_branches,
+        skip_slot_residual_textures=cfg.skip_slot_residual_textures,
     )
 
     # Build shape keys index from byte buffers

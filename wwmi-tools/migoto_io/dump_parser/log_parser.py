@@ -28,6 +28,8 @@ class FrameDumpCall:
     def __init__(self, call_id):
         self.id = call_id
         self.parameters = {}
+        # 该 call 中由 PSSetShaderResources 显式绑定的 PS 贴图槽位集合
+        self.ps_texture_slots = set()
         self.patterns = {
             CallParameters.Dispatch: (
                 re.compile(r'^Dispatch\(ThreadGroupCountX:(\d+), ThreadGroupCountY:(\d+), ThreadGroupCountZ:(\d+)\)'),
@@ -38,6 +40,8 @@ class FrameDumpCall:
                 lambda data: DrawIndexed(int(data[0]), int(data[1]), int(data[2]))
             ),
         }
+        # PSSetShaderResources(StartSlot:N, NumViews:K, ...) 允许出现多次
+        self.ps_sr_pattern = re.compile(r'PSSetShaderResources\(StartSlot:(\d+), NumViews:(\d+),')
 
     def import_data(self, raw_log_entry):
         raw_log_entry = ' '.join(raw_log_entry)
@@ -48,6 +52,14 @@ class FrameDumpCall:
             if len(result) != 1:
                 raise ValueError(f'More than 1 data entries for pattern {pattern} in {raw_log_entry}')
             self.parameters[name] = decoder(result[0])
+
+        # 解析 PSSetShaderResources，记录被显式绑定的 PS 贴图槽位
+        # 每次 PSSetShaderResources(StartSlot:N, NumViews:K) 绑定连续 K 个槽位 [N, N+K-1]
+        for start_str, count_str in self.ps_sr_pattern.findall(raw_log_entry):
+            start = int(start_str)
+            count = int(count_str)
+            for slot in range(start, start + count):
+                self.ps_texture_slots.add(slot)
 
 
 class FrameDumpLog:
@@ -87,32 +99,3 @@ class FrameDumpLog:
                 self.calls[raw_call_id] = call
             # 正则匹配
             call.import_data(raw_log_entry)
-
-        # self.calls = {}
-        # with (open(self.path, "r") as f):
-        #     lines = f.readlines()
-        #     call = None
-        #     raw_log_entry = []
-        #     for line_id, line in enumerate(lines):
-        #         raw_call_id = line[0:6]
-        #         if raw_call_id.isnumeric():
-        #             line_call_id = int(raw_call_id)
-        #             if call is None:
-        #                 call = FrameDumpCall(line_call_id)
-        #                 self.calls[raw_call_id] = call
-        #             elif line_call_id != call.id:
-        #                 call = FrameDumpCall(line_call_id)
-        #                 if line_call_id in self.calls:
-        #                     raise ValueError(f'Malformed log line {line_id}: '
-        #                                      f'data collection for call id {raw_call_id} was already finished, '
-        #                                      f'current call id: {call.id}')
-        #                 self.calls[raw_call_id] = call
-        #             call.import_data(raw_log_entry)
-        #             raw_log_entry = [line[7:]]
-        #         elif call is None:
-        #             continue
-        #         else:
-        #             raw_log_entry.append(line.strip())
-        #     # Handle last line of the log
-        #     call.import_data(raw_log_entry)
-

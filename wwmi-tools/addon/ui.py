@@ -216,6 +216,7 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         layout.row().prop(cfg, 'skip_jpg_textures')
         layout.row().prop(cfg, 'skip_known_cubemap_textures')
         layout.row().prop(cfg, 'skip_same_slot_hash_textures')
+        layout.row().prop(cfg, 'skip_slot_residual_textures')
 
         layout.row()
 

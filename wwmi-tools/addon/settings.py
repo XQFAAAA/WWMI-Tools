@@ -97,6 +97,12 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         default=True,
     ) # type: ignore
 
+    skip_slot_residual_textures: BoolProperty(
+        name="Textures Filtering: Skip Dirty Slot",
+        description="只保留日志中PSSetShaderResources显式绑定的贴图",
+        default=True,
+    ) # type: ignore
+
     extract_output_folder: StringProperty(
         name="Output Folder",
         description="Extracted WWMI objects export directory",

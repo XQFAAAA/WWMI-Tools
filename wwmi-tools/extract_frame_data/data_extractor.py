@@ -56,6 +56,7 @@ class DrawData:
 class DataExtractor:
     # Input
     call_branches: Dict[str, ShaderCallBranch]
+    skip_slot_residual_textures: bool = False
     # Output
     shader_hashes: Dict[str, str] = field(init=False)
     shape_key_data: Dict[str, ShapeKeyData] = field(init=False)
@@ -203,10 +204,15 @@ class DataExtractor:
                         texcoord_buffer = ByteBuffer(layout=texcoord_buffer.layout)
 
                 textures = []
+                # 开启去除slot残留时，只保留该 call 中由 PSSetShaderResources 显式绑定的槽位
+                fresh_slots = branch_call.call.ps_texture_slots if self.skip_slot_residual_textures else None
                 for texture_id in range(16):
                     texture = branch_call.resources.get(f'TEXTURE_{texture_id}', None)
-                    if texture is not None:
-                        textures.append(texture)
+                    if texture is None:
+                        continue
+                    if fresh_slots is not None and texture_id not in fresh_slots:
+                        continue  # 脏状态残留槽位，跳过
+                    textures.append(texture)
 
                 draw_data = DrawData(
                     vb_hash=branch_call.resources['POSE_INPUT_0'].hash,

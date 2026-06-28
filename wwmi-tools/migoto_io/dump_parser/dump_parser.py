@@ -42,3 +42,4 @@ class Dump:
             logged_call = self.log.calls.get(call.id, None)
             if logged_call is not None:
                 call.parameters = logged_call.parameters
+                call.ps_texture_slots = logged_call.ps_texture_slots
