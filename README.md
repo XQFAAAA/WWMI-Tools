@@ -10,7 +10,7 @@
 
 ![alt text](README-image/PixPin_2026-06-06_22-36-59.png)
 
-可以开启Skip Dirty Slot，只保留PSSetShaderResources显式绑定的贴图
+可以开启Skip Dirty Slot，只保留PSSetShaderResources显式绑定的贴图，这会清理非常多的无效信息
 
 因为渲染管线中的资源绑定（Resource Binding）是状态持久的（Stateful/Persistent），只要你不显式解绑或覆盖，旧的绑定状态就会一直保留。所以，开启Skip Dirty Slot后，只保留PSSetShaderResources显式绑定的贴图，其他slot的贴图会被过滤掉
 
