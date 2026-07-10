@@ -203,6 +203,15 @@ configuration = Configuration(
         'TEXTURE_6': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(6), ignore_missing=True)]),
         'TEXTURE_7': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(7), ignore_missing=True)]),
         'TEXTURE_8': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(8), ignore_missing=True)]),
+        'TEXTURE_9': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(9), ignore_missing=True)]),
+        'TEXTURE_10': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(10), ignore_missing=True)]),
+        'TEXTURE_11': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(11), ignore_missing=True)]),
+        'TEXTURE_12': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(12), ignore_missing=True)]),
+        'TEXTURE_13': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(13), ignore_missing=True)]),
+        'TEXTURE_14': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(14), ignore_missing=True)]),
+        'TEXTURE_15': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(15), ignore_missing=True)]),
+        'TEXTURE_16': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(16), ignore_missing=True)]),
+        'TEXTURE_17': DataMap([Source('DRAW_VS', ShaderType.Pixel, SlotType.Texture, SlotId(17), ignore_missing=True)]),
         
     },
     output_vb_layout=BufferLayout([
