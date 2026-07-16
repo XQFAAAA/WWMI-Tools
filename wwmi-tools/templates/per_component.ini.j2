@@ -274,7 +274,7 @@ endif
 
 ; Shading: Textures -------------------------
 
-{%- if cfg.texture_mode == 'SLOT' and not cfg.slot_complex and slot_textures %}
+{%- if cfg.texture_mode == 'SLOT' and cfg.match_dds_format == 'LESS' and slot_textures %}
 {%- for component in merged_object.components %}
 {%- set component_idx = loop.index0 %}
 {%- for mf in component.match_formats %}
@@ -294,7 +294,8 @@ filter_index = {{ mf.filter_index }}
 filename = Textures/{{ texture.dds_export_name }}
 {%- endfor %}
 {%- endif %}
-{%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex and slot_textures %}
+
+{%- if cfg.texture_mode == 'SLOT' and cfg.match_dds_format != 'LESS' and slot_textures %}
 {%- for component in merged_object.components %}
 {%- set component_idx = loop.index0 %}
 {%- for mf in component.match_formats %}
@@ -318,6 +319,7 @@ filter_index = {{ mf.filter_index }}
 filename = Textures/{{ texture.dds_export_name }}
 {%- endfor %}
 {%- endif %}
+
 {%- if cfg.texture_mode == 'HASH' %}
 {%- for texture in textures %}
 

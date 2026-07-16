@@ -42,6 +42,7 @@ class ObjectMergerWWMI(ObjectMerger):
     def __init__(self, **kwargs):
         self._texture_mode = kwargs.pop('texture_mode', 'HASH')
         self._slot_complex = kwargs.pop('slot_complex', False)
+        self._match_dds_format = kwargs.pop('match_dds_format', 'LESS')
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
         super().__init__(**kwargs)
 
@@ -60,6 +61,7 @@ class ObjectMergerWWMI(ObjectMerger):
 
         shader_texture_usage = self._shader_texture_usage
         is_simple = not self._slot_complex
+        match_mode = self._match_dds_format  # 'LESS', 'MORE', 'MOST'
 
         # Regex for object/material name to extract component id
         component_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
@@ -220,21 +222,37 @@ class ObjectMergerWWMI(ObjectMerger):
                             node_group_info['inputs'].append(input_info)
 
                             # Add to component match_formats
-                            if match_format_enum is not None and match_format_enum.value not in component_match_formats:
-                                if is_simple:
-                                    # Simple mode: single match_format per entry
-                                    component_match_formats[match_format_enum.value] = {
-                                        'match_format': match_format_enum,
-                                        'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                    }
-                                else:
-                                    # Complex mode: include all same-prefix formats
-                                    same_prefix_formats = match_format_enum.get_same_prefix_formats()
-                                    component_match_formats[match_format_enum.value] = {
-                                        'match_format': match_format_enum,
-                                        'match_formats': same_prefix_formats,
-                                        'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                    }
+                            if match_format_enum is not None:
+                                if match_format_enum.value not in component_match_formats:
+                                    if match_mode == 'LESS':
+                                        # Less: single match_format (typeless)
+                                        component_match_formats[match_format_enum.value] = {
+                                            'match_format': match_format_enum,
+                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
+                                        }
+                                    elif match_mode == 'MORE':
+                                        # More: typeless + all original formats collected
+                                        fmt_list = [match_format_enum]
+                                        if format_enum and format_enum != match_format_enum:
+                                            fmt_list.append(format_enum)
+                                        component_match_formats[match_format_enum.value] = {
+                                            'match_format': match_format_enum,
+                                            'match_formats': fmt_list,
+                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
+                                        }
+                                    else:
+                                        # Most: all same-prefix formats
+                                        same_prefix_formats = match_format_enum.get_same_prefix_formats()
+                                        component_match_formats[match_format_enum.value] = {
+                                            'match_format': match_format_enum,
+                                            'match_formats': same_prefix_formats,
+                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
+                                        }
+                                elif match_mode == 'MORE' and format_enum:
+                                    # Accumulate additional original formats with same typeless prefix
+                                    existing = component_match_formats[match_format_enum.value]
+                                    if format_enum not in existing['match_formats']:
+                                        existing['match_formats'].append(format_enum)
 
                             # Add to all_images (deduplicate by dds_export_name)
                             if dds_export_name not in all_images:
@@ -277,7 +295,7 @@ class ObjectMergerWWMI(ObjectMerger):
         # Store slot_textures for later use
         self._slot_textures = list(all_images.values())
 
-        print(f"Slot mode ({'simple' if is_simple else 'complex'}): collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
+        print(f"Slot mode ({'simple' if is_simple else 'complex'}, match={match_mode}): collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
 
     @staticmethod
     def fill_missing_data(objects):
@@ -477,6 +495,7 @@ class ModExporter:
             add_missing_vertex_groups=self.cfg.add_missing_vertex_groups,
             texture_mode=self.cfg.texture_mode,
             slot_complex=self.cfg.slot_complex,
+            match_dds_format=self.cfg.match_dds_format,
             shader_texture_usage=shader_texture_usage,
         )
         self.merged_object = object_merger.merged_object

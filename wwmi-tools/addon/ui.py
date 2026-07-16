@@ -142,10 +142,11 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
             layout.row()
 
             if cfg.texture_mode == 'SLOT':
-                row = layout.row(align=True)
-                row.prop(cfg, 'export_textures')
-                row.prop(cfg, 'slot_complex')
-                row.prop(cfg, 'rabbitfx')
+                box = layout.box()
+                box.prop(cfg, 'export_textures')
+                box.prop(cfg, 'match_dds_format')
+                box.prop(cfg, 'slot_complex')
+                box.prop(cfg, 'rabbitfx')
 
             layout.separator()
 

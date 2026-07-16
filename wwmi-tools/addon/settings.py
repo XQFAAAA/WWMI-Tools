@@ -191,6 +191,18 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         name="Slot Complex",
         description="读取所有Component序号物体的材质，每个物体的材质都读取一次。有dds格式风险",
         default=False,
+        update=lambda self, context: setattr(self, 'match_dds_format', 'MORE') if self.slot_complex and self.match_dds_format == 'LESS' else None,
+    ) # type: ignore
+
+    match_dds_format: bpy.props.EnumProperty(
+        name="Match DDS Format",
+        description="控制纹理槽位匹配的DDS格式范围",
+        items=[
+            ('LESS', 'Less', '仅匹配typeless格式'),
+            ('MORE', 'More', '匹配typeless + ShaderTextureUsage中的原始格式'),
+            ('MOST', 'Most', '匹配所有同前缀格式变体'),
+        ],
+        default='MORE',
     ) # type: ignore
 
     mod_skeleton_type: bpy.props.EnumProperty(
