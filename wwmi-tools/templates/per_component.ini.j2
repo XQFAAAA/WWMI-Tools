@@ -335,6 +335,28 @@ endif
 {%- endfor %}
 {%- endif %}
 
+{%- if cfg.texture_mode == 'PATH' %}
+{%- for texture in path_textures %}
+
+; <asset-hash-stream>
+; match_asset_name = {{ texture.asset_name }}
+; {{ texture.width }}x{{ texture.height }}
+[TextureOverrideTexture{{ texture.asset_name }}]
+hash = {{ texture.hash }}
+match_priority = 0
+if $object_detected
+    this = ResourceTexture{{ texture.resource_name }}
+endif
+; </asset-hash-stream>
+{%- endfor %}
+
+{%- for texture in path_textures %}
+
+[ResourceTexture{{ texture.resource_name }}]
+filename = Textures/{{ texture.filename }}
+{%- endfor %}
+{%- endif %}
+
 {% if merged_object.shapekeys.vertex_count > 0 -%}
 ; Skinning: Shape Keys Override -------------------------
 

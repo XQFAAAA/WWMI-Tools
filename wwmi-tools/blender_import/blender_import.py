@@ -66,8 +66,7 @@ class ObjectImporter:
                 remove_unused_vertex_groups(context, obj)
 
         # Setup materials based on ShaderTextureUsage.json
-        if cfg.texture_mode == 'SLOT':
-            setup_materials(object_source_folder, imported_objects)
+        setup_materials(object_source_folder, imported_objects)
 
         print(f'Total import time: {time.time() - start_time :.3f}s')
 

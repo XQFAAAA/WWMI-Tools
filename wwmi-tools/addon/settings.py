@@ -17,6 +17,22 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         if self.last_error_setting_name == property_name:
             clear_error(self)
 
+    def on_copy_textures_toggled(self, context):
+        if self.copy_textures:
+            self.export_textures = False
+            self.textures_ini = 'COPY_ALL_HASH'
+
+    def on_export_textures_toggled(self, context):
+        if self.export_textures:
+            self.copy_textures = False
+            self.textures_ini = 'FROM_SLOT_HASH'
+
+    def on_textures_ini_changed(self, context):
+        if self.textures_ini == 'FROM_SLOT_HASH':
+            self.copy_textures = False
+        elif self.textures_ini == 'COPY_ALL_HASH':
+            self.export_textures = False
+
     wwmi_tools_version: bpy.props.StringProperty(
         name = "WWMI Tools Version",
         default = '.'.join(map(str, bl_info["version"]))
@@ -70,7 +86,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     skip_small_textures: BoolProperty(
         name="Textures Filtering: Skip Small",
         description="Skip texture smaller than specified size",
-        default=True,
+        default=False,
     ) # type: ignore
 
     skip_small_textures_size: IntProperty(
@@ -82,7 +98,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     skip_jpg_textures: BoolProperty(
         name="Textures Filtering: Skip .jpg",
         description="Skip texture with .jpg extension. These textures are mostly gradients and other masks",
-        default=True,
+        default=False,
     ) # type: ignore
 
     skip_same_slot_hash_textures: BoolProperty(
@@ -94,12 +110,18 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     skip_known_cubemap_textures: BoolProperty(
         name="Textures Filtering: Skip Known Cubemaps",
         description="Skip texture if its hash is in the list of known cubemaps. Those textures are often loaded incorrectly.",
-        default=True,
+        default=False,
     ) # type: ignore
 
     skip_slot_residual_textures: BoolProperty(
         name="Textures Filtering: Skip Dirty Slot",
         description="只保留日志中PSSetShaderResources显式绑定的贴图",
+        default=True,
+    ) # type: ignore
+
+    texture_asset_manifest: BoolProperty(
+        name="TextureAssetManifest",
+        description="从Frame Dump文件夹读取TextureAssetManifest.jsonl，使用资源路径名称作为贴图文件名，并在ShaderTextureUsage.json中添加asset_path信息",
         default=True,
     ) # type: ignore
 
@@ -145,13 +167,13 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     skip_empty_vertex_groups: BoolProperty(
         name="Skip Empty Vertex Groups",
         description="Automatically remove zero-weight Vertex Groups from imported components. This way VG list of each component will contain only actually used VGs",
-        default=True,
+        default=False,
     ) # type: ignore
 
     mirror_mesh: BoolProperty(
         name="Mirror Mesh",
         description="Automatically mirror mesh to match actual in-game left-right. Transformation applies to the data itself and does not affect Scale X of Transform section in Object Properties",
-        default=False,
+        default=True,
     ) # type: ignore
 
     ########################################
@@ -182,9 +204,21 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         items=[
             ('HASH', 'Hash', 'Reference textures by hash (default 3DMigoto style)'),
             ('SLOT', 'Slot', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
+            ('PATH', 'Path(Hash)', 'Reference textures by hash with asset_path/asset_name matching\nRequires ShaderTextureUsage.json\n使用资源路径名称匹配纹理'),
         ],
         default='HASH',
         update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,
+    ) # type: ignore
+
+    textures_ini: bpy.props.EnumProperty(
+        name="Textures INI",
+        description="Controls how the texture section of mod.ini is generated in Path mode",
+        items=[
+            ('COPY_ALL_HASH', 'Copy All Hash', 'Use all hash-collected textures with asset_name/asset_path matching'),
+            ('FROM_SLOT_HASH', 'From Slot Hash', 'Read hash/asset_path from ShaderTextureUsage.json per node group slot'),
+        ],
+        default='COPY_ALL_HASH',
+        update=lambda self, context: self.on_textures_ini_changed(context),
     ) # type: ignore
 
     slot_complex: BoolProperty(
@@ -225,12 +259,14 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         name="Copy Textures",
         description="Copy texture files to export folder",
         default=True,
+        update=lambda self, context: self.on_copy_textures_toggled(context),
     ) # type: ignore
 
     export_textures: BoolProperty(
         name="Export Textures",
         description="Export textures in slot mode (convert non-DDS textures to DDS format)",
         default=True,
+        update=lambda self, context: self.on_export_textures_toggled(context),
     ) # type: ignore
 
     rabbitfx: BoolProperty(
@@ -280,13 +316,13 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     add_missing_vertex_groups: BoolProperty(
         name="Add Missing Vertex Groups",
         description="Fill gaps in Vertex Groups list based on VG names (i.e. add group '1' between '0' and '2' if it's missing)",
-        default=True,
+        default=False,
     ) # type: ignore
     
     fill_missing_mesh_data: BoolProperty(
         name="Fill Missing Mesh Data",
         description="Automatically generate missing COLOR (fill with [0, 0.25, 0, 1.0]), COLOR1 (black), TEXCOORD.xy (empty UV), TEXCOORD1.xy (copy of TEXCOORD.xy) and TEXCOORD2.xy (frontal projection)",
-        default=True,
+        default=False,
     ) # type: ignore
 
     unrestricted_custom_shape_keys: BoolProperty(

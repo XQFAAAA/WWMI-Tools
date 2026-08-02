@@ -27,7 +27,7 @@ class Dump:
 
             if not os.path.isfile(resource_path):
                 continue
-            if filename.endswith('txt'):
+            if filename.endswith('txt') or filename.endswith('jsonl'):
                 continue
 
             resource_descriptor = ResourceDescriptor(resource_path)

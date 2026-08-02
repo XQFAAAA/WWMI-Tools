@@ -1,6 +1,7 @@
 import hashlib
 import os
 import time
+import uuid
 import bpy
 
 from typing import List, Dict, Union, Optional, Tuple
@@ -45,6 +46,7 @@ class IniMaker:
     unrestricted_custom_shape_keys: bool
     skeleton_scale: float
     slot_textures: list = None
+    path_textures: list = None
     formatter: TextFormatter = TextFormatter()
     # Generated
     namespace: str = field(init=False)
@@ -52,7 +54,13 @@ class IniMaker:
     ini_string: str = field(init=False)
     
     def __post_init__(self):
-        self.namespace = 'Mods\\' + unidecode(self.mod_info.mod_name).replace(' ', '')
+        mod_name = self.mod_info.mod_name
+        if mod_name.strip() == 'Unnamed Mod':
+            # Default mod name: use a random hash for the namespace
+            self.namespace = 'Mods\\' + uuid.uuid4().hex
+        else:
+            self.namespace = 'Mods\\' + unidecode(mod_name).replace(' ', '')
+
     def start_live_write(self, context, cfg):
         thread = Thread(target=self.live_write_thread, args=(context, cfg))
         thread.start()

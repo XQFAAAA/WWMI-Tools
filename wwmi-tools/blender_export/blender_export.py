@@ -51,7 +51,7 @@ class ObjectMergerWWMI(ObjectMerger):
         self.fill_missing_data(objects)
 
     def pre_join_objects(self):
-        if self._texture_mode == 'SLOT':
+        if self._texture_mode in ('SLOT', 'PATH'):
             self._collect_slot_material_info()
 
     def _collect_slot_material_info(self):
@@ -178,12 +178,17 @@ class ObjectMergerWWMI(ObjectMerger):
                             dot_index = image_name.find('.')
                             base_name = image_name[:dot_index] if dot_index > 0 else image_name
 
-                            # Determine format from ShaderTextureUsage.json
+                            # Determine format from ShaderTextureUsage.json.
+                            # Node group inputs may carry a full texture name
+                            # (e.g. 'ps-t0: T_R2T1...Cloth_N'), while
+                            # ShaderTextureUsage.json is keyed by the base slot name (ps-t0).
+                            base_match = re.match(r'ps-t\d+', input_name)
+                            base_input_name = base_match.group(0) if base_match else input_name
                             format_enum = None
                             match_format_enum = None
                             slot_data = shader_texture_usage[component_key][found_vs_key][ps_key]
-                            if input_name in slot_data:
-                                format_str = slot_data[input_name].get('format', '')
+                            if base_input_name in slot_data:
+                                format_str = slot_data[base_input_name].get('format', '')
                                 if format_str:
                                     try:
                                         format_enum = DXGIFormatIndex[format_str]
@@ -210,14 +215,23 @@ class ObjectMergerWWMI(ObjectMerger):
                             else:
                                 filter_index = 0.0
 
+                            slot_data_entry = slot_data.get(base_input_name, {})
+                            asset_path = slot_data_entry.get('asset_path', '')
+                            asset_name = slot_data_entry.get('asset_name', '') or (
+                                asset_path.rsplit('.', 1)[-1] if asset_path else '')
                             input_info = {
-                                'slot': input_name,
+                                'slot': base_input_name,
                                 'format': format_enum,
                                 'match_format': match_format_enum,
                                 'filter_index': filter_index,
                                 'image': image,
                                 'dds_export_name': dds_export_name,
                                 'resource_name': resource_name,
+                                'hash': slot_data_entry.get('hash', ''),
+                                'asset_path': asset_path,
+                                'asset_name': asset_name,
+                                'width': slot_data_entry.get('width', 0),
+                                'height': slot_data_entry.get('height', 0),
                             }
                             node_group_info['inputs'].append(input_info)
 
@@ -260,6 +274,11 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'image': image,
                                     'dds_export_name': dds_export_name,
                                     'resource_name': resource_name,
+                                    'hash': slot_data_entry.get('hash', ''),
+                                    'asset_path': asset_path,
+                                    'asset_name': asset_name,
+                                    'width': slot_data_entry.get('width', 0),
+                                    'height': slot_data_entry.get('height', 0),
                                 }
 
                         if node_group_info['inputs']:
@@ -349,6 +368,7 @@ class ModExporter:
         self.cfg = cfg
         self.excluded_buffers = excluded_buffers
         self._slot_warnings = []
+        self._shader_texture_usage = None
 
         self.object_source_folder = resolve_path(cfg.object_source_folder)
         self.mod_output_folder = resolve_path(cfg.mod_output_folder)
@@ -476,10 +496,11 @@ class ModExporter:
     def build_merged_object(self):
         start_time = time.time()
         
-        # Read ShaderTextureUsage*.json files for slot mode
+        # Read ShaderTextureUsage*.json files for slot/path modes
         shader_texture_usage = None
-        if not self.cfg.partial_export and self.cfg.texture_mode == 'SLOT':
+        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'PATH'):
             shader_texture_usage = self._load_and_merge_shader_texture_usage()
+        self._shader_texture_usage = shader_texture_usage
 
         object_merger = ObjectMergerWWMI(
             extracted_object=self.extracted_object,
@@ -501,7 +522,7 @@ class ModExporter:
         self.merged_object = object_merger.merged_object
 
         # Collect slot_textures and slot_warnings from object_merger
-        if not self.cfg.partial_export and self.cfg.texture_mode == 'SLOT':
+        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'PATH'):
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
             self._slot_warnings = getattr(object_merger, '_slot_warnings', [])
             
@@ -598,6 +619,7 @@ class ModExporter:
             skeleton_scale=self.cfg.skeleton_scale,
             unrestricted_custom_shape_keys=self.cfg.unrestricted_custom_shape_keys,
             slot_textures=self.slot_textures if self.cfg.texture_mode == 'SLOT' else None,
+            path_textures=self.build_path_textures() if self.cfg.texture_mode == 'PATH' else None,
         )
 
         self.ini = ini_maker
@@ -628,6 +650,8 @@ class ModExporter:
                     shutil.copy(texture.path, texture_path)
             if self.cfg.texture_mode == 'SLOT' and self.slot_textures:
                 self.write_slot_textures()
+            elif self.cfg.texture_mode == 'PATH' and self.cfg.textures_ini == 'FROM_SLOT_HASH' and self.slot_textures:
+                self.write_slot_textures()
             # Write mod logo
             mod_logo_path = resolve_path(self.cfg.mod_logo)
             if mod_logo_path.is_file():
@@ -643,6 +667,62 @@ class ModExporter:
                 self.ini.write_list_gui(self.mod_output_folder)
                 
         print(f'Disk write time: {time.time() - start_time :.3f}s')
+
+    def build_path_textures(self):
+        """Build the texture list for the PATH mode ini section.
+
+        COPY_ALL_HASH: use all hash-collected textures, asset info looked up by
+                       hash in ShaderTextureUsage.json.
+        FROM_SLOT_HASH: use textures collected from node groups, hash/asset info
+                       read from ShaderTextureUsage.json per slot.
+        """
+        usage = self._shader_texture_usage or {}
+        if self.cfg.textures_ini == 'FROM_SLOT_HASH':
+            result = []
+            for st in self.slot_textures or []:
+                asset_path = st.get('asset_path', '')
+                resource_name = st.get('resource_name', '')
+                asset_name = st.get('asset_name', '') or (
+                    asset_path.rsplit('.', 1)[-1] if asset_path else resource_name)
+                result.append({
+                    'filename': st['dds_export_name'],
+                    'hash': st.get('hash', ''),
+                    'asset_path': asset_path,
+                    'asset_name': asset_name,
+                    'resource_name': resource_name,
+                    'width': st.get('width', 0),
+                    'height': st.get('height', 0),
+                })
+            return result
+
+        # COPY_ALL_HASH: map hash -> metadata (asset_path/width/height) from ShaderTextureUsage.json
+        hash_to_meta = {}
+        for comp_data in usage.values():
+            for vs_dict in comp_data.values():
+                for slot_dict in vs_dict.values():
+                    for entry in slot_dict.values():
+                        h = entry.get('hash')
+                        ap = entry.get('asset_path')
+                        if h and ap and h not in hash_to_meta:
+                            hash_to_meta[h] = entry
+
+        result = []
+        for texture in self.textures:
+            meta = hash_to_meta.get(texture.hash, {})
+            asset_path = meta.get('asset_path', '')
+            resource_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', texture.filename.rsplit('.', 1)[0])
+            asset_name = meta.get('asset_name', '') or (
+                asset_path.rsplit('.', 1)[-1] if asset_path else resource_name)
+            result.append({
+                'filename': texture.filename,
+                'hash': texture.hash,
+                'asset_path': asset_path,
+                'asset_name': asset_name,
+                'resource_name': resource_name,
+                'width': meta.get('width', 0),
+                'height': meta.get('height', 0),
+            })
+        return result
 
     def _find_texture_format(self, dds_export_name):
         """Find the target format for a texture from material info. Returns format name string or 'BC7_UNORM'."""

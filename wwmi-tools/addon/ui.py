@@ -143,10 +143,14 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
 
             if cfg.texture_mode == 'SLOT':
                 box = layout.box()
-                box.prop(cfg, 'export_textures')
                 box.prop(cfg, 'match_dds_format')
+                box.prop(cfg, 'export_textures')
                 box.prop(cfg, 'slot_complex')
                 box.prop(cfg, 'rabbitfx')
+            elif cfg.texture_mode == 'PATH':
+                box = layout.box()
+                box.prop(cfg, 'textures_ini')
+                box.prop(cfg, 'export_textures')
 
             layout.separator()
 
@@ -185,7 +189,6 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
 
         layout.row().prop(cfg, 'color_storage')
         layout.row().prop(cfg, 'import_skeleton_type')
-        layout.row().prop(cfg, 'texture_mode')
         if cfg.import_skeleton_type == 'MERGED':
             layout.row().prop(cfg, 'skip_empty_vertex_groups')
         layout.row().prop(cfg, 'mirror_mesh')
@@ -218,6 +221,7 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         layout.row().prop(cfg, 'skip_known_cubemap_textures')
         layout.row().prop(cfg, 'skip_same_slot_hash_textures')
         layout.row().prop(cfg, 'skip_slot_residual_textures')
+        layout.row().prop(cfg, 'texture_asset_manifest')
 
         layout.row()
 
