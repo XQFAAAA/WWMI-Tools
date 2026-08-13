@@ -149,8 +149,9 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
                 box.prop(cfg, 'rabbitfx')
             elif cfg.texture_mode == 'PATH':
                 box = layout.box()
-                box.prop(cfg, 'textures_ini')
                 box.prop(cfg, 'export_textures')
+                box.prop(cfg, 'hash_complex')
+                box.prop(cfg, 'max_ps_t')
 
             layout.separator()
 

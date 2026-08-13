@@ -47,6 +47,7 @@ class IniMaker:
     skeleton_scale: float
     slot_textures: list = None
     path_textures: list = None
+    path_complex: dict = None
     formatter: TextFormatter = TextFormatter()
     # Generated
     namespace: str = field(init=False)

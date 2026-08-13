@@ -30,6 +30,15 @@ from .ini_maker import IniMaker
 
 from .data_models.data_model_wwmi import DataModelWWMI
 
+# Image file extensions that may appear in a Blender image name; these are stripped
+# when deriving the exported texture name. Other dot suffixes (e.g. Blender's '.001'
+# duplicate naming) are intentionally kept, otherwise distinct textures like 'red'
+# and 'red.001' would collide into a single export.
+_IMAGE_EXTENSIONS = {
+    '.dds', '.png', '.tga', '.tif', '.tiff', '.jpg', '.jpeg',
+    '.bmp', '.exr', '.hdr', '.webp', '.gif', '.psd',
+}
+
 class Fatal(Exception): pass
 
 
@@ -42,6 +51,7 @@ class ObjectMergerWWMI(ObjectMerger):
     def __init__(self, **kwargs):
         self._texture_mode = kwargs.pop('texture_mode', 'HASH')
         self._slot_complex = kwargs.pop('slot_complex', False)
+        self._hash_complex = kwargs.pop('hash_complex', False)
         self._match_dds_format = kwargs.pop('match_dds_format', 'LESS')
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
         super().__init__(**kwargs)
@@ -60,7 +70,9 @@ class ObjectMergerWWMI(ObjectMerger):
             return
 
         shader_texture_usage = self._shader_texture_usage
-        is_simple = not self._slot_complex
+        # Hash Complex (PATH mode) reads materials of all objects per component,
+        # same as Slot Complex does for SLOT mode
+        is_simple = not (self._slot_complex or (self._texture_mode == 'PATH' and self._hash_complex))
         match_mode = self._match_dds_format  # 'LESS', 'MORE', 'MOST'
 
         # Regex for object/material name to extract component id
@@ -184,10 +196,16 @@ class ObjectMergerWWMI(ObjectMerger):
                             if image is None:
                                 continue
 
-                            # Calculate base_name from image name
-                            image_name = image.name
-                            dot_index = image_name.find('.')
-                            base_name = image_name[:dot_index] if dot_index > 0 else image_name
+                            # Calculate base_name from image name.
+                            # Only a real file extension (e.g. '.dds') is stripped so a
+                            # format suffix never leaks into the export name. Other dot
+                            # suffixes (e.g. Blender's '.001' duplicate naming) are kept,
+                            # so distinct textures like 'red' and 'red.001' stay separate.
+                            stem, ext = os.path.splitext(image.name)
+                            if stem and ext.lower() in _IMAGE_EXTENSIONS:
+                                base_name = stem
+                            else:
+                                base_name = image.name
 
                             # Determine format from ShaderTextureUsage.json.
                             # Node group inputs may carry a full texture name
@@ -527,6 +545,7 @@ class ModExporter:
             add_missing_vertex_groups=self.cfg.add_missing_vertex_groups,
             texture_mode=self.cfg.texture_mode,
             slot_complex=self.cfg.slot_complex,
+            hash_complex=self.cfg.hash_complex,
             match_dds_format=self.cfg.match_dds_format,
             shader_texture_usage=shader_texture_usage,
         )
@@ -631,6 +650,7 @@ class ModExporter:
             unrestricted_custom_shape_keys=self.cfg.unrestricted_custom_shape_keys,
             slot_textures=self.slot_textures if self.cfg.texture_mode == 'SLOT' else None,
             path_textures=self.build_path_textures() if self.cfg.texture_mode == 'PATH' else None,
+            path_complex=self.build_path_complex_data() if (self.cfg.texture_mode == 'PATH' and self.cfg.hash_complex) else None,
         )
 
         self.ini = ini_maker
@@ -661,7 +681,7 @@ class ModExporter:
                     shutil.copy(texture.path, texture_path)
             if self.cfg.texture_mode == 'SLOT' and self.slot_textures:
                 self.write_slot_textures()
-            elif self.cfg.texture_mode == 'PATH' and self.cfg.textures_ini == 'FROM_SLOT_HASH' and self.slot_textures:
+            elif self.cfg.texture_mode == 'PATH' and self.slot_textures:
                 self.write_slot_textures()
             # Write mod logo
             mod_logo_path = resolve_path(self.cfg.mod_logo)
@@ -682,58 +702,74 @@ class ModExporter:
     def build_path_textures(self):
         """Build the texture list for the PATH mode ini section.
 
-        COPY_ALL_HASH: use all hash-collected textures, asset info looked up by
-                       hash in ShaderTextureUsage.json.
-        FROM_SLOT_HASH: use textures collected from node groups, hash/asset info
-                       read from ShaderTextureUsage.json per slot.
+        Textures are collected from node groups, hash/asset info read from
+        ShaderTextureUsage.json per slot.
         """
-        usage = self._shader_texture_usage or {}
-        if self.cfg.textures_ini == 'FROM_SLOT_HASH':
-            result = []
-            for st in self.slot_textures or []:
-                asset_path = st.get('asset_path', '')
-                resource_name = st.get('resource_name', '')
-                asset_name = st.get('asset_name', '') or (
-                    asset_path.rsplit('.', 1)[-1] if asset_path else resource_name)
-                result.append({
-                    'filename': st['dds_export_name'],
-                    'hash': st.get('hash', ''),
-                    'asset_path': asset_path,
-                    'asset_name': asset_name,
-                    'resource_name': resource_name,
-                    'width': st.get('width', 0),
-                    'height': st.get('height', 0),
-                })
-            return result
-
-        # COPY_ALL_HASH: map hash -> metadata (asset_path/width/height) from ShaderTextureUsage.json
-        hash_to_meta = {}
-        for comp_data in usage.values():
-            for vs_dict in comp_data.values():
-                for slot_dict in vs_dict.values():
-                    for entry in slot_dict.values():
-                        h = entry.get('hash')
-                        ap = entry.get('asset_path')
-                        if h and ap and h not in hash_to_meta:
-                            hash_to_meta[h] = entry
-
         result = []
-        for texture in self.textures:
-            meta = hash_to_meta.get(texture.hash, {})
-            asset_path = meta.get('asset_path', '')
-            resource_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', texture.filename.rsplit('.', 1)[0])
-            asset_name = meta.get('asset_name', '') or (
+        for st in self.slot_textures or []:
+            asset_path = st.get('asset_path', '')
+            resource_name = st.get('resource_name', '')
+            asset_name = st.get('asset_name', '') or (
                 asset_path.rsplit('.', 1)[-1] if asset_path else resource_name)
             result.append({
-                'filename': texture.filename,
-                'hash': texture.hash,
+                'filename': st['dds_export_name'],
+                'hash': st.get('hash', ''),
                 'asset_path': asset_path,
                 'asset_name': asset_name,
                 'resource_name': resource_name,
-                'width': meta.get('width', 0),
-                'height': meta.get('height', 0),
+                'width': st.get('width', 0),
+                'height': st.get('height', 0),
             })
         return result
+
+    def build_path_complex_data(self):
+        """Build data for PATH mode with Hash Complex enabled.
+
+        When multiple objects of the same Component (or across components) share the
+        same texture hash, 3DMigoto only fires one override per hash. To pick the
+        correct replacement texture per draw call, each Component gets a
+        ``$texture_component{N}_count`` variable set to the object index right before
+        its draw. This method groups textures by hash and records which
+        (component, object) maps to which ResourceTexture.
+
+        Returns a dict with:
+          counters: list of component indices that have at least one object with material
+          hash_groups: {hash: [{'component_idx', 'obj_idx', 'resource_name'}, ...]}
+        """
+        counters = []
+        hash_groups = {}
+        for component_idx, component in enumerate(self.merged_object.components):
+            has_material = False
+            for obj_idx, obj in enumerate(component.objects):
+                if obj.material is None:
+                    continue
+                has_material = True
+                seen = set()
+                for node_group in obj.material.get('node_groups', []):
+                    for inp in node_group.get('inputs', []):
+                        h = inp.get('hash')
+                        resource_name = inp.get('resource_name')
+                        if not h or not resource_name:
+                            continue
+                        key = (component_idx, obj_idx, resource_name)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        hash_groups.setdefault(h, []).append({
+                            'component_idx': component_idx,
+                            'obj_idx': obj_idx,
+                            'resource_name': resource_name,
+                            'asset_name': inp.get('asset_name') or (
+                                inp.get('asset_path', '').rsplit('.', 1)[-1] if inp.get('asset_path') else resource_name),
+                            'width': inp.get('width', 0),
+                            'height': inp.get('height', 0),
+                        })
+            if has_material:
+                counters.append(component_idx)
+        return {
+            'counters': counters,
+            'hash_groups': hash_groups,
+        }
 
     def _find_texture_format(self, dds_export_name):
         """Find the target format for a texture from material info. Returns format name string or 'BC7_UNORM'."""

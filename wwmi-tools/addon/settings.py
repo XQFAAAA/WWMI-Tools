@@ -20,18 +20,10 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     def on_copy_textures_toggled(self, context):
         if self.copy_textures:
             self.export_textures = False
-            self.textures_ini = 'COPY_ALL_HASH'
 
     def on_export_textures_toggled(self, context):
         if self.export_textures:
             self.copy_textures = False
-            self.textures_ini = 'FROM_SLOT_HASH'
-
-    def on_textures_ini_changed(self, context):
-        if self.textures_ini == 'FROM_SLOT_HASH':
-            self.copy_textures = False
-        elif self.textures_ini == 'COPY_ALL_HASH':
-            self.export_textures = False
 
     wwmi_tools_version: bpy.props.StringProperty(
         name = "WWMI Tools Version",
@@ -210,22 +202,24 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,
     ) # type: ignore
 
-    textures_ini: bpy.props.EnumProperty(
-        name="Textures INI",
-        description="Controls how the texture section of mod.ini is generated in Path mode",
-        items=[
-            ('COPY_ALL_HASH', 'Copy All Hash', 'Use all hash-collected textures with asset_name/asset_path matching'),
-            ('FROM_SLOT_HASH', 'From Slot Hash', 'Read hash/asset_path from ShaderTextureUsage.json per node group slot'),
-        ],
-        default='COPY_ALL_HASH',
-        update=lambda self, context: self.on_textures_ini_changed(context),
-    ) # type: ignore
-
     slot_complex: BoolProperty(
         name="Slot Complex",
         description="读取所有Component序号物体的材质，每个物体的材质都读取一次。有dds格式风险",
         default=False,
         update=lambda self, context: setattr(self, 'match_dds_format', 'MORE') if self.slot_complex and self.match_dds_format == 'LESS' else None,
+    ) # type: ignore
+
+    hash_complex: BoolProperty(
+        name="Hash Complex",
+        description="读取所有Component序号物体的材质，每个物体的材质都读取一次",
+        default=False,
+    ) # type: ignore
+
+    max_ps_t: IntProperty(
+        name="Max PS-T",
+        description="控制模板中ps-t槽位的最大编号（如设置为7则最多到ps-t7）。影响CommandListTriggerResourceOverrides、ResourceBackup_ps-t、CommandListBackupTexture、CommandListRestoreTexture",
+        default=11,
+        min=1,
     ) # type: ignore
 
     match_dds_format: bpy.props.EnumProperty(
