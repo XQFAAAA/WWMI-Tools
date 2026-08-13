@@ -161,6 +161,17 @@ class ObjectMergerWWMI(ObjectMerger):
                                 continue
                             from_node = link.from_node
 
+                            # Trace upstream through reroute (转接) nodes until an image node is reached
+                            seen = set()
+                            while from_node.type == 'REROUTE' and from_node.inputs[0].is_linked:
+                                if from_node in seen:
+                                    break
+                                seen.add(from_node)
+                                link = from_node.inputs[0].links[0]
+                                if link.is_muted:
+                                    break
+                                from_node = link.from_node
+
                             # Check if the source is an image texture node
                             if from_node.type != 'TEX_IMAGE':
                                 continue

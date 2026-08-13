@@ -44,6 +44,21 @@ def _get_slot_output_name(slot_key, filename, alpha=False):
     return f'{slot_key} alpha' if alpha else slot_key
 
 
+def _group_matches_slots(ng, texture_slots):
+    """True if the node group already exposes input sockets for all given slots.
+
+    Decides whether an existing group with the same base name can be reused,
+    or whether it was built for a different texture configuration and a
+    suffixed group should be created instead.
+    """
+    existing = {item.name for item in ng.interface.items_tree}
+    for slot_key in sorted(texture_slots.keys(), key=lambda s: int(s.split('-t')[-1])):
+        iface_key = _get_slot_interface_name(slot_key, texture_slots[slot_key].get('filename', ''))
+        if iface_key not in existing or f'{iface_key} alpha' not in existing:
+            return False
+    return True
+
+
 def setup_materials(object_source_folder, imported_objects):
     """Setup materials for imported objects based on ShaderTextureUsage.json."""
     shader_usage_path = Path(object_source_folder) / 'ShaderTextureUsage.json'
@@ -98,7 +113,7 @@ def _create_component_material(obj, component_key, object_source_folder, vs_ps_d
     for vs_key, ps_dict in vs_ps_data.items():
         for ps_key, texture_slots in ps_dict.items():
             ng_name = f'vb={object_source_folder.name}-C{component_i}-{ps_key}'
-            ng = _get_or_create_node_group(ng_name, texture_slots)
+            ng, ng_name = _get_or_create_node_group(ng_name, texture_slots)
 
             # Node group: diagonal placement (each lower-right of previous)
             ng_node = nodes.new('ShaderNodeGroup')
@@ -167,11 +182,26 @@ def _create_component_material(obj, component_key, object_source_folder, vs_ps_d
 
 
 def _get_or_create_node_group(ng_name, texture_slots):
-    """Get existing node group or create a new one with the full WWMI shader structure."""
-    if ng_name in bpy.data.node_groups:
-        return bpy.data.node_groups[ng_name]
+    """Get existing node group or create a new one with the full WWMI shader structure.
 
-    ng = bpy.data.node_groups.new(ng_name, 'ShaderNodeTree')
+    Returns (node_group, final_name). If the base name is already taken by a group
+    built for a different texture configuration, a '.001' style suffix is appended
+    to the new group; an existing group whose interface matches the requested slots
+    is reused as-is.
+    """
+    final_name = ng_name
+    index = 1
+    while True:
+        existing = bpy.data.node_groups.get(final_name)
+        if existing is None or _group_matches_slots(existing, texture_slots):
+            break
+        final_name = f'{ng_name}.{index:03d}'
+        index += 1
+
+    if final_name in bpy.data.node_groups:
+        return bpy.data.node_groups[final_name], final_name
+
+    ng = bpy.data.node_groups.new(final_name, 'ShaderNodeTree')
     nodes = ng.nodes
     links = ng.links
 
@@ -328,7 +358,7 @@ def _get_or_create_node_group(ng_name, texture_slots):
             if output_socket is None or not output_socket.is_linked:
                 ng.interface.remove(item)
 
-    return ng
+    return ng, final_name
 
 
 def _get_or_create_normal_fix_group():
