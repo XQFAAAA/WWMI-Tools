@@ -1,89 +1,99 @@
 
-# Texture slot mode
-这个分支版本主要增加Texture的slot模式
 
-根据每个着色器的slot各部位dds格式的不同，过滤出正确的着色器
+这个分支版本增加从材质节点组导出的Texture的slot模式和path hash模式
+使用以下dll，能获得更好的体验，它包含贴图的资源路径的额外功能
+https://github.com/visaokc/WWMI-AssetPath-DLL-Core
 
-## Extract Objects From Dump
+# "Extract Objects From Dump" 修改项
 
-会增加一个ShaderTextureUsage.json文件
+### "ShaderTextureUsage.json" 文件
 
-![alt text](README-image/PixPin_2026-06-06_22-36-59.png)
+额外导出文件，用于存储模型着色器的各槽位贴图信息
 
-可以开启Skip Dirty Slot，只保留PSSetShaderResources显式绑定的贴图，这会清理非常多的无效信息
+### "Textures Filtering: Skip Dirty Slot" 选项
 
-因为渲染管线中的资源绑定（Resource Binding）是状态持久的（Stateful/Persistent），只要你不显式解绑或覆盖，旧的绑定状态就会一直保留。所以，开启Skip Dirty Slot后，只保留PSSetShaderResources显式绑定的贴图，其他slot的贴图会被过滤掉
+读取日志中显示声明的贴图，避免资源懒更新导致的无效信息
 
-## Import Object
+### "TextureAssetManifest" 选项
 
-当选择Slot时
+配套visaokc的dll，获取贴图的资源路径
 
-![alt text](README-image/PixPin_2026-06-06_22-36-24.png)
+# Import Object
 
-将导入ShaderTextureUsage.json作为材质
-这些材质默认都是禁用的
+导入时，会根据ShaderTextureUsage.json作为材质节点组
 
-## Export Mod
+如果之前使用了visaokc的dll，获取贴图的资源路径，会根据贴图的N D FTM ID后缀自动连接一个简单的材质
 
-导出时将只对已激活的vs=ps=的节点组和上面已激活的输入进行导出
+材质中的第一个节点组是激活的，其他默认关闭
 
+# Export Mod
+
+导出时将只对已激活的vs=ps=的节点组和已激活的输入接口进行导出
 使用M键激活节点组，使用ctrl alt 右键激活连线
 
-将图片连接到需要的ps-t slot上。不要连接到ps-t alpha，那不会被插件处理
-![alt text](README-image/PixPin_2026-06-06_23-02-04.png)
+将图片连接到需要的ps-t slot上。ps-t alpha不会被插件处理
 
-导出图片Export Textures时，如果图片在ObjectSources中，会复制
-如果不是，会保存为副本为tga，并使用texconv.exe转化为dds格式，dds格式由ShaderTextureUsage.json中对应位置控制
+## Slot 模式
+
+### "Export Textures" 选项
+
+如果图片在ObjectSources中，会复制
+如果不是，会保存为副本为tga，并使用texconv.exe转化为dds格式，dds格式由ShaderTextureUsage.json中对应slot位置控制
+
+是否开启不影响ini文件的内容
 
 Export Textures并不影响Copy Textures功能，但我还是建议把Copy Textures关闭
 
-Export Mod后，在Textures中，会看到导出的图片，如果图片名称不是英文，会转化
-![alt text](README-image/PixPin_2026-06-06_23-02-26.png)
+### "Match DDS Format" 选项
 
-![alt text](README-image/PixPin_2026-06-06_23-04-28.png)
+选项分为Less、More、Most
+用来控制模糊匹配的格式多少
+如果每个component只使用一个节点组，建议选择Less
+如果每个component有多个节点组，建议选择More
 
-![alt text](README-image/PixPin_2026-06-06_23-05-07.png)
+### "Slot Complex" 选项
 
-![alt text](README-image/PixPin_2026-06-06_23-11-22.png)
+按材质分离每个物体
+每个物体都读取一遍材质中的节点组
+使得同个component能够分开使用不同的贴图
 
-## 注意
+### "RabbitFX" 选项
+
+开启后，插件会加入RabbitFX中的正则表达式 filter_index 1718.1作为条件判断
+
+
+### 注意
 
 不要修改节点组的名称，因为要去ShaderTextureUsage.json中查找
 
 大部分dds格式都是其对应的TYPELESS，除非它被其他mod截取
 但是少部分dds格式不是这样，比如R8，如果你发现有其他奇怪的格式需要特殊处理，请告诉我
 
-![alt text](README-image/PixPin_2026-06-06_23-19-44.png)
-
-## slot稳定性
+### slot稳定性
 
 应该使用适当的slot来保证稳定性，这个插件功能不可能适配所有的问题，但初衷是尽可能不使用贴图的hash值
 
-1. 确保你选择的几个slot所在的着色器能够和其他着色器区分开，即这个dds format组合是唯一的，有时候很难做到，可以安装RabbitFX，并在插件中开启选项，插件会加入RabbitFX中的正则表达式 filter_index 1718.1作为条件判断
-2. 不要选择那些不会被使用到的贴图，比如body的贴图在head上，它就不应该被选择
-3. 一些同样作用的着色器可能存在略微的差别，比如在角色出现的瞬间的着色器和正常情况的着色器，可能在某一个slot位置插入的其他贴图
+1. 确保你选择的几个slot所在的着色器能够和其他着色器区分开，即这个dds format组合是唯一的，
+2. 一些同样作用的着色器可能存在略微的差别，比如在角色出现的瞬间的着色器和正常情况的着色器，可能在某一个slot位置插入的其他贴图
+3. 角色不同形态，大概率槽位也会不同
 
-就像这样
+## Path Hash 模式
 
-| ps-t0 | ps-t1 | ps-t2 | ps-t3 | ps-t4 | ps-t5 | ps-t6 | ps-t7 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| A | B | C | D | E | F | G | H |
+索引节点组位置对应的hash值
 
+### "Export Textures" 选项
 
-| ps-t0 | ps-t1 | ps-t2 | ps-t3 | ps-t4 | ps-t5 | ps-t6 | ps-t7 | ps-t8 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A | B | C | D | insert | E | F | G | H |
+同Slot 模式
 
-## Slot Complex
+### "Hash Complex" 选项
 
-默认情况下 Slot 只会选择同个Component序号的第一个材质
+同Slot 模式
 
-Slot Complex则会分开，同时它兼容ini toggles的功能
+### "Max Ps-T" 选项
 
-Slot Complex会有多次绘制的风险，在首次draw之后，接下来的draw slot判断会受到上一次影响，此时那个slot 贴图的格式就是上一次所赋予的，如果导出后又将贴图保存为其他格式，那就导致判断错误。这种情况很少很少，在选择 手动备份资源然后还原资源 和 保存正确的格式，显然是后者更方便
+checktextureoverride = ps-t的上限
 
-![alt text](README-image/PixPin_2026-06-06_23-26-35.png)
+### visaokc的dll兼容性
 
-![alt text](README-image/PixPin_2026-06-06_23-37-04.png)
-
+导出后以注释的形式，提前写上部分修复格式
 
