@@ -204,14 +204,14 @@ class WWMI_Settings(bpy.types.PropertyGroup):
 
     slot_complex: BoolProperty(
         name="Slot Complex",
-        description="读取所有Component序号物体的材质，每个物体的材质都读取一次。有dds格式风险",
+        description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组。有dds格式风险",
         default=False,
         update=lambda self, context: setattr(self, 'match_dds_format', 'MORE') if self.slot_complex and self.match_dds_format == 'LESS' else None,
     ) # type: ignore
 
     hash_complex: BoolProperty(
         name="Hash Complex",
-        description="读取所有Component序号物体的材质，每个物体的材质都读取一次",
+        description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组",
         default=False,
     ) # type: ignore
 

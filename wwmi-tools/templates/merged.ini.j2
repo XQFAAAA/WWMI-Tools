@@ -515,47 +515,45 @@ if $mod_enabled
         {%- endif %}
         {%- endfor %}
         {%- elif cfg.texture_mode == 'PATH' %}
-        {%- if not is_path_complex %}
+        {%- if is_path_complex %}
+        {{note("Do by-slot resource overrides")}}
+        run = CommandListOverrideSharedResources
+        {{note("Save original ps-t textures once so they can be restored after each draw call")}}
+        run = CommandListBackupTexture
+        {%- for group in path_complex.draw_groups[component_index] %}
+        {{note("Pick the right texture override for this material group")}}
+        $texture_component{{ component_index }}_count = {{ group.group_idx }}
         {{note("Trigger by-hash resource overrides")}}
         run = CommandListTriggerResourceOverrides
+        {%- for obj in group.objects %}
+        ; Draw {{ obj.name }}
+        {%- if cfg.use_ini_toggles %}
+        if {{ formatter.format_ini_drawvar(obj.name) }}
+			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+        endif
+        {%- else %}
+		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
         {%- endif %}
+        {%- endfor %}
+        {{note("Restore original textures")}}
+        run = CommandListRestoreTexture
+        {%- endfor %}
+        $texture_component{{ component_index }}_count = -1
+        {%- else %}
+        {{note("Trigger by-hash resource overrides")}}
+        run = CommandListTriggerResourceOverrides
         {{note("Do by-slot resource overrides")}}
         run = CommandListOverrideSharedResources
         {%- for obj in merged_object.components[loop.index0].objects %}
         ; Draw {{ obj.name }}
-        {%- if is_path_complex %}
-        $texture_component{{ component_index }}_count = {{ loop.index0 }}
-        {%- endif %}
         {%- if cfg.use_ini_toggles %}
         if {{ formatter.format_ini_drawvar(obj.name) }}
-            {%- if is_path_complex %}
-            {{note("Save original textures so the next draw call can override them again")}}
-            run = CommandListBackupTexture
-            {{note("Trigger by-hash resource overrides")}}
-            run = CommandListTriggerResourceOverrides
-            {%- endif %}
 			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
-            {%- if is_path_complex %}
-            {{note("Restore original textures")}}
-            run = CommandListRestoreTexture
-            {%- endif %}
         endif
         {%- else %}
-        {%- if is_path_complex %}
-        {{note("Save original textures so the next draw call can override them again")}}
-        run = CommandListBackupTexture
-        {{note("Trigger by-hash resource overrides")}}
-        run = CommandListTriggerResourceOverrides
-        {%- endif %}
 		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
-        {%- if is_path_complex %}
-        {{note("Restore original textures")}}
-        run = CommandListRestoreTexture
-        {%- endif %}
         {%- endif %}
         {%- endfor %}
-        {%- if is_path_complex %}
-        $texture_component{{ loop.index0 }}_count = -1
         {%- endif %}
         {%- endif %}
         {{note("Restore required parts of original context")}}
@@ -664,7 +662,7 @@ ps-t{{ slot_idx }} = ref ResourceBackup_ps-t{{ slot_idx }}
 hash = {{ hash }}
 match_priority = 0
 {%- for choice in choices %}
-if $texture_component{{ choice.component_idx }}_count == {{ choice.obj_idx }}
+if $texture_component{{ choice.component_idx }}_count == {{ choice.group_idx }}
     this = ref ResourceTexture{{ choice.resource_name }}
 endif
 {%- endfor %}

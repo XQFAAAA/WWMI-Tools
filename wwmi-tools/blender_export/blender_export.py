@@ -23,7 +23,7 @@ from ..migoto_io.data_model.dxgi_format import DXGIFormatIndex
 
 from ..extract_frame_data.metadata_format import read_metadata, ExtractedObject
 
-from .object_merger import ObjectMerger, SkeletonType, MergedObject, MergedObjectShapeKeysBatch
+from .object_merger import ObjectMerger, SkeletonType, MergedObject, MergedObjectShapeKeysBatch, TempObject
 from .metadata_collector import Version, ModInfo
 from .texture_collector import Texture, get_textures
 from .ini_maker import IniMaker
@@ -38,6 +38,16 @@ _IMAGE_EXTENSIONS = {
     '.dds', '.png', '.tga', '.tif', '.tiff', '.jpg', '.jpeg',
     '.bmp', '.exr', '.hdr', '.webp', '.gif', '.psd',
 }
+
+
+def _nudge_alpha_byte(buf, index):
+    """Nudge a single alpha byte away from its current value (~13/255, i.e.
+    +-0.05 in 0-1 space) so the alpha channel is not uniform after conversion."""
+    a = buf[index]
+    new_a = min(255, a + 13) if a < 128 else max(0, a - 13)
+    if new_a != a:
+        buf[index] = new_a
+
 
 class Fatal(Exception): pass
 
@@ -55,6 +65,41 @@ class ObjectMergerWWMI(ObjectMerger):
         self._match_dds_format = kwargs.pop('match_dds_format', 'LESS')
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
         super().__init__(**kwargs)
+
+    def finalize_temp_objects_geometry(self):
+        super().finalize_temp_objects_geometry()
+        # Complex mode separates multi-material objects before merging so each
+        # resulting object carries a single material for slot/path material scanning.
+        if self._slot_complex or self._hash_complex:
+            self._separate_objects_by_material()
+
+    def _separate_objects_by_material(self):
+        """Split each TEMP object that uses multiple materials into one object per
+        material (bpy.ops.mesh.separate preserves vertex groups, shape keys and UVs)."""
+        for component in self.components:
+            new_temp_objects = []
+            for temp_object in component.objects:
+                temp_obj = temp_object.object
+                used_material_indices = {polygon.material_index for polygon in temp_obj.data.polygons}
+                if len(used_material_indices) <= 1:
+                    new_temp_objects.append(temp_object)
+                    continue
+                existing_objects = set(bpy.data.objects.keys())
+                with OpenObject(self.context, temp_obj, mode='EDIT') as obj:
+                    bpy.ops.mesh.select_all(action='SELECT')
+                    bpy.ops.mesh.separate(type='MATERIAL')
+                # The original object keeps the first material's faces; Blender creates
+                # one sibling object per remaining material in the same collection.
+                new_temp_objects.append(temp_object)
+                for obj_name in bpy.data.objects.keys():
+                    if obj_name not in existing_objects:
+                        sibling = bpy.data.objects[obj_name]
+                        sibling_name = obj_name[5:] if obj_name.startswith('TEMP_') else obj_name
+                        new_temp_objects.append(TempObject(
+                            name=sibling_name,
+                            object=sibling,
+                        ))
+            component.objects = new_temp_objects
 
     def fill_missing_temp_objects_data(self):
         objects = [temp_object.object for component in self.components for temp_object in component.objects]
@@ -118,9 +163,16 @@ class ObjectMergerWWMI(ObjectMerger):
                     'node_groups': [],
                 }
 
-                # Scan all materials on this object for matching node groups
-                for mat in obj.data.materials:
-                    if mat is None or not mat.use_nodes:
+                # Only scan the first material on this object for matching node groups.
+                # Warn but do not abort the export if the object has multiple materials.
+                object_materials = [m for m in obj.data.materials if m is not None]
+                if len(object_materials) > 1:
+                    self._slot_warnings.append(
+                        f"Object '{obj_name}' has {len(object_materials)} materials; "
+                        f"only the first material is scanned for node groups"
+                    )
+                for mat in object_materials[:1]:
+                    if not mat.use_nodes:
                         continue
                     for node in mat.node_tree.nodes:
                         if node.type != 'GROUP':
@@ -728,48 +780,82 @@ class ModExporter:
         When multiple objects of the same Component (or across components) share the
         same texture hash, 3DMigoto only fires one override per hash. To pick the
         correct replacement texture per draw call, each Component gets a
-        ``$texture_component{N}_count`` variable set to the object index right before
-        its draw. This method groups textures by hash and records which
-        (component, object) maps to which ResourceTexture.
+        ``$texture_component{N}_count`` variable set to the material group index right
+        before its draw group. Objects that share the same material texture mapping
+        are grouped together so they need only a single trigger/restore pair.
 
         Returns a dict with:
           counters: list of component indices that have at least one object with material
-          hash_groups: {hash: [{'component_idx', 'obj_idx', 'resource_name'}, ...]}
+          hash_groups: {hash: [{'component_idx', 'group_idx', 'resource_name'}, ...]}
+          draw_groups: {component_idx: [{'group_idx', 'objects': [TempObject, ...]}]}
         """
         counters = []
         hash_groups = {}
+        draw_groups = {}
         for component_idx, component in enumerate(self.merged_object.components):
             has_material = False
-            for obj_idx, obj in enumerate(component.objects):
-                if obj.material is None:
-                    continue
-                has_material = True
+            # Group objects by their material's texture mapping so objects with the
+            # same textures can share one trigger/restore pair per draw group.
+            groups = []
+            group_of_signature = {}
+            for obj in component.objects:
+                signature = self._material_texture_signature(obj.material)
+                if signature not in group_of_signature:
+                    group_of_signature[signature] = len(groups)
+                    groups.append({'group_idx': len(groups), 'objects': []})
+                groups[group_of_signature[signature]]['objects'].append(obj)
+            for group in groups:
                 seen = set()
-                for node_group in obj.material.get('node_groups', []):
-                    for inp in node_group.get('inputs', []):
-                        h = inp.get('hash')
-                        resource_name = inp.get('resource_name')
-                        if not h or not resource_name:
-                            continue
-                        key = (component_idx, obj_idx, resource_name)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        hash_groups.setdefault(h, []).append({
-                            'component_idx': component_idx,
-                            'obj_idx': obj_idx,
-                            'resource_name': resource_name,
-                            'asset_name': inp.get('asset_name') or (
-                                inp.get('asset_path', '').rsplit('.', 1)[-1] if inp.get('asset_path') else resource_name),
-                            'width': inp.get('width', 0),
-                            'height': inp.get('height', 0),
-                        })
+                for obj in group['objects']:
+                    if obj.material is None:
+                        continue
+                    has_material = True
+                    for node_group in obj.material.get('node_groups', []):
+                        for inp in node_group.get('inputs', []):
+                            h = inp.get('hash')
+                            resource_name = inp.get('resource_name')
+                            if not h or not resource_name:
+                                continue
+                            key = (h, resource_name)
+                            if key in seen:
+                                continue
+                            seen.add(key)
+                            hash_groups.setdefault(h, []).append({
+                                'component_idx': component_idx,
+                                'group_idx': group['group_idx'],
+                                'resource_name': resource_name,
+                                'asset_name': inp.get('asset_name') or (
+                                    inp.get('asset_path', '').rsplit('.', 1)[-1] if inp.get('asset_path') else resource_name),
+                                'width': inp.get('width', 0),
+                                'height': inp.get('height', 0),
+                            })
             if has_material:
                 counters.append(component_idx)
+                draw_groups[component_idx] = [
+                    {'group_idx': group['group_idx'], 'objects': group['objects']}
+                    for group in groups
+                ]
         return {
             'counters': counters,
             'hash_groups': hash_groups,
+            'draw_groups': draw_groups,
         }
+
+    @staticmethod
+    def _material_texture_signature(material):
+        """Return a hashable signature of a material's texture mapping (hash -> resource).
+
+        Two materials with the same mapping produce the same overrides and can safely
+        share a draw group in PATH complex mode. Objects without a material use a
+        distinct None signature so they keep drawing with the original textures."""
+        if material is None:
+            return None
+        return frozenset(
+            (inp.get('hash'), inp.get('resource_name'))
+            for node_group in material.get('node_groups', [])
+            for inp in node_group.get('inputs', [])
+            if inp.get('hash') and inp.get('resource_name')
+        )
 
     def _find_texture_format(self, dds_export_name):
         """Find the target format for a texture from material info. Returns format name string or 'BC7_UNORM'."""
@@ -801,6 +887,12 @@ class ModExporter:
         if not texconv_path.is_file():
             raise ConfigError('mod_output_folder', f'texconv.exe not found at {texconv_path}!')
 
+        # Staged TGA -> DDS jobs: (tga_path, dds_export_name, target_format).
+        # Blender API calls (save_render) must stay on the main thread, so TGA
+        # staging happens first; only the independent texconv subprocesses are
+        # run in parallel afterwards.
+        texconv_jobs = []
+
         for slot_texture in self.slot_textures:
             image = slot_texture['image']
             dds_export_name = slot_texture['dds_export_name']
@@ -831,30 +923,6 @@ class ModExporter:
 
             print(f'Converting {dds_export_name} via TGA...')
 
-            # Tweak first pixel's alpha to force DDS encoder to preserve alpha channel.
-            # When alpha is purely 0 or 255, some DDS compressors (BC3/BC7) can
-            # optimize it away or collapse precision. Nudging the first pixel by
-            # 1/255 keeps visual change invisible while forcing real alpha data.
-            old_pixels = None
-            try:
-                pixels_tuple = image.pixels[:]
-                if len(pixels_tuple) >= 4:
-                    alpha_idx = 3
-                    a_float = pixels_tuple[alpha_idx]
-                    if a_float < 0.5:
-                        new_float = a_float + 0.05
-                    else:
-                        new_float = a_float - 0.05
-                    new_float = max(0.0, min(1.0, new_float))
-                    if abs(new_float - a_float) > 1e-6:
-                        old_pixels = pixels_tuple
-                        pixels_list = list(pixels_tuple)
-                        pixels_list[alpha_idx] = new_float
-                        image.pixels = pixels_list
-            except Exception as e:
-                print(f"Warning: Failed to nudge alpha for '{image.name}': {e}")
-                old_pixels = None
-
             # Save as TGA using save_render to force RGBA output
             try:
                 scene = bpy.context.scene
@@ -870,21 +938,105 @@ class ModExporter:
                     image_settings.color_mode = old_color_mode
             except Exception as e:
                 print(f"Warning: Failed to save image '{image.name}' as TGA: {e}")
-                if old_pixels is not None:
-                    try:
-                        image.pixels = old_pixels
-                    except Exception:
-                        pass
                 continue
 
-            # Restore original image pixels so the blend file is not modified
-            if old_pixels is not None:
-                try:
-                    image.pixels = old_pixels
-                except Exception as e:
-                    print(f"Warning: Failed to restore pixels for '{image.name}': {e}")
+            # Nudge the TGA's first pixel alpha in-place (see _nudge_tga_alpha).
+            # The old approach read the entire image.pixels array (millions of
+            # floats) and wrote it all back just to tweak one value, which also
+            # re-uploaded the texture to the GPU and temporarily dirtied the
+            # .blend file. Editing the saved file byte keeps the alpha-nudge
+            # behavior with near-zero cost.
+            self._nudge_tga_alpha(tga_path)
 
-            # Convert TGA to DDS using texconv
+            texconv_jobs.append((tga_path, dds_export_name, target_format))
+
+        # All TGAs are staged. Convert them to DDS in parallel, since each
+        # texconv run is an independent subprocess.
+        if texconv_jobs:
+            self._run_texconv_batch(texconv_path, texconv_jobs)
+
+        # Clean up TGA intermediates
+        for tga_path, _, _ in texconv_jobs:
+            if tga_path.is_file():
+                tga_path.unlink()
+
+    @staticmethod
+    def _nudge_tga_alpha(tga_path: Path):
+        """Nudge the first pixel's alpha inside an 8-bit RGBA TGA file.
+
+        texconv's BC7 encoder encodes a block with fully uniform alpha=0 using
+        an opaque (no-alpha) mode, so the exported DDS loses its alpha channel
+        (a fully transparent texture turns opaque). Nudging one pixel by ~13/255
+        keeps the visual change invisible while forcing real alpha data through
+        compression. The TGA is patched on-disk so Blender's image.pixels (a
+        full-array get/set that also re-uploads the texture to the GPU) is never
+        touched and the .blend file stays unmodified.
+
+        Blender writes TGA as either type 2 (uncompressed) or type 10 (RLE),
+        both 32-bit. For RLE the first packet is split so only pixel 0 is nudged.
+        """
+        try:
+            with open(tga_path, 'r+b') as f:
+                data = bytearray(f.read())
+                if len(data) < 18:
+                    return
+                i_type = data[2]
+                depth = data[16]
+                if depth != 32:
+                    return
+                off = 18 + data[0]  # byte 0 = image ID length
+                if off + 4 > len(data):
+                    return
+
+                if i_type == 2:
+                    # Uncompressed truecolor: first pixel alpha is directly addressable.
+                    _nudge_alpha_byte(data, off + 3)
+                    f.seek(0)
+                    f.write(data)
+                elif i_type == 10:
+                    pkt = data[off]
+                    count = (pkt & 0x7F) + 1
+                    if pkt & 0x80:
+                        # RLE run of `count` identical pixels. Split pixel 0 out
+                        # so only it carries the nudged alpha; the rest stay as-is.
+                        if off + 5 > len(data):
+                            return
+                        color = data[off + 1: off + 5]  # B,G,R,A of the run color
+                        nudged = bytearray(color)
+                        _nudge_alpha_byte(nudged, 3)
+                        new_packets = bytearray()
+                        new_packets.append(0x00)  # raw packet, 1 pixel
+                        new_packets += nudged
+                        if count > 1:
+                            new_packets.append(0x80 | (count - 2))  # RLE, count-1 pixels
+                            new_packets += color
+                        f.seek(0)
+                        f.write(data[:off])
+                        f.write(new_packets)
+                        f.write(data[off + 5:])
+                        f.truncate()
+                    else:
+                        # Raw packet: first pixel's color follows directly.
+                        if off + 5 > len(data):
+                            return
+                        _nudge_alpha_byte(data, off + 4)
+                        f.seek(0)
+                        f.write(data)
+                    # else: unsupported packet layout, skip silently
+        except Exception as e:
+            print(f"Warning: Failed to nudge TGA alpha for '{tga_path.name}': {e}")
+
+    def _run_texconv_batch(self, texconv_path, jobs):
+        """Run texconv for all staged TGA files in parallel.
+
+        Each texconv invocation is an independent subprocess, so a thread pool
+        (which releases the GIL while waiting on subprocesses) is sufficient;
+        no Blender API calls are made from worker threads.
+        """
+        import concurrent.futures
+
+        def convert(job):
+            tga_path, dds_export_name, target_format = job
             cmd = [
                 str(texconv_path),
                 '-f', target_format,
@@ -897,15 +1049,21 @@ class ModExporter:
             try:
                 result = subprocess.run(cmd, capture_output=True, timeout=60)
                 if result.returncode != 0:
-                    print(f"Warning: texconv failed for {tga_name}: {result.stderr.decode('utf-8', errors='replace')}")
+                    return dds_export_name, f"texconv failed: {result.stderr.decode('utf-8', errors='replace')}"
             except subprocess.TimeoutExpired:
-                print(f"Warning: texconv timed out for {tga_name}")
+                return dds_export_name, "texconv timed out"
             except Exception as e:
-                print(f"Warning: texconv error for {tga_name}: {e}")
-            finally:
-                # Clean up TGA file
-                if tga_path.is_file():
-                    tga_path.unlink()
+                return dds_export_name, f"texconv error: {e}"
+            return None
+
+        max_workers = min(len(jobs), max(1, os.cpu_count() or 4))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [executor.submit(convert, job) for job in jobs]
+            for future in concurrent.futures.as_completed(futures):
+                error = future.result()
+                if error:
+                    dds_export_name, message = error
+                    print(f"Warning: {message} for {dds_export_name}")
 
     def compare_outputs(self, old_path: Path, new_path: Path):
 
