@@ -88,6 +88,11 @@ class ObjectMergerWWMI(ObjectMerger):
                 with OpenObject(self.context, temp_obj, mode='EDIT') as obj:
                     bpy.ops.mesh.select_all(action='SELECT')
                     bpy.ops.mesh.separate(type='MATERIAL')
+                    # Exit edit mode so the separated mesh is flushed back to the
+                    # object data. Otherwise later stats/merge steps read stale
+                    # pre-separation data and the original object keeps its full
+                    # geometry (duplicating the separated parts).
+                    bpy.ops.object.mode_set(mode='OBJECT')
                 # The original object keeps the first material's faces; Blender creates
                 # one sibling object per remaining material in the same collection.
                 new_temp_objects.append(temp_object)
