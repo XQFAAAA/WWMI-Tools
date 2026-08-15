@@ -132,6 +132,9 @@ class ObjectMergerWWMI(ObjectMerger):
 
         # Collect all unique images across all components for slot_textures
         all_images = {}  # key: dds_export_name, value: dict with image info
+        # One entry per texture hash for path mode: a single image wired into multiple
+        # node groups maps to several hashes, each of which needs its own override.
+        path_hash_textures = {}  # key: hash, value: dict with image info
 
         # Warnings to show after export
         self._slot_warnings = []
@@ -193,6 +196,13 @@ class ObjectMergerWWMI(ObjectMerger):
 
                         ng_component_index = ng_match.group(1)
                         ps_value = ng_match.group(2)
+
+                        # The node group's C{index} prefix must match the component id
+                        # taken from the object name, so renaming the control object
+                        # (Component 3 / Component 4) selects which node group is
+                        # exported - same behavior for slot and path modes.
+                        if int(ng_component_index) != int(obj_component_id):
+                            continue
 
                         # Check if this node group exists in ShaderTextureUsage.json for this component
                         ps_key = f"ps={ps_value}"
@@ -367,6 +377,22 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'height': slot_data_entry.get('height', 0),
                                 }
 
+                            # Path mode: keep one entry per hash so a single image wired
+                            # into multiple node groups (different hashes) still gets an
+                            # override section for every hash, not just the first one.
+                            hash_value = slot_data_entry.get('hash', '')
+                            if hash_value and hash_value not in path_hash_textures:
+                                path_hash_textures[hash_value] = {
+                                    'image': image,
+                                    'dds_export_name': dds_export_name,
+                                    'resource_name': resource_name,
+                                    'hash': hash_value,
+                                    'asset_path': asset_path,
+                                    'asset_name': asset_name,
+                                    'width': slot_data_entry.get('width', 0),
+                                    'height': slot_data_entry.get('height', 0),
+                                }
+
                         if node_group_info['inputs']:
                             if ps_value in seen_node_group_keys:
                                 # Same ps under this Component: overwrite (keep last)
@@ -399,6 +425,8 @@ class ObjectMergerWWMI(ObjectMerger):
 
         # Store slot_textures for later use
         self._slot_textures = list(all_images.values())
+        # Per-hash texture entries for path mode override sections
+        self._path_hash_textures = list(path_hash_textures.values())
 
         print(f"Slot mode ({'simple' if is_simple else 'complex'}, match={match_mode}): collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
 
@@ -454,6 +482,7 @@ class ModExporter:
         self.cfg = cfg
         self.excluded_buffers = excluded_buffers
         self._slot_warnings = []
+        self._path_hash_textures = []
         self._shader_texture_usage = None
 
         self.object_source_folder = resolve_path(cfg.object_source_folder)
@@ -612,6 +641,7 @@ class ModExporter:
         if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'PATH'):
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
             self._slot_warnings = getattr(object_merger, '_slot_warnings', [])
+            self._path_hash_textures = getattr(object_merger, '_path_hash_textures', [])
             
         print(f'Merged object build time: {time.time() - start_time :.3f}s ({self.merged_object.vertex_count} vertices, {self.merged_object.index_count} indices)')
 
@@ -707,6 +737,7 @@ class ModExporter:
             unrestricted_custom_shape_keys=self.cfg.unrestricted_custom_shape_keys,
             slot_textures=self.slot_textures if self.cfg.texture_mode == 'SLOT' else None,
             path_textures=self.build_path_textures() if self.cfg.texture_mode == 'PATH' else None,
+            path_hash_textures=self.build_path_hash_textures() if self.cfg.texture_mode == 'PATH' else [],
             path_complex=self.build_path_complex_data() if (self.cfg.texture_mode == 'PATH' and self.cfg.hash_complex) else None,
         )
 
@@ -779,6 +810,42 @@ class ModExporter:
             })
         return result
 
+    def build_path_hash_textures(self):
+        """Build per-hash override sections for simple PATH mode.
+
+        ``slot_textures`` keeps one entry per image, so a single image wired into
+        multiple node groups (one hash per slot) would only keep the first hash.
+        This method instead returns one entry per hash so every hash gets its own
+        ``[TextureOverrideTexture]`` section (all referencing the same exported
+        texture). Section names stay unique by suffixing colliding asset names
+        with a short hash.
+        """
+        used_names = set()
+        result = []
+        for st in self._path_hash_textures or []:
+            h = st.get('hash', '')
+            if not h:
+                continue
+            resource_name = st.get('resource_name', '')
+            asset_name = st.get('asset_name', '') or (
+                st.get('asset_path', '').rsplit('.', 1)[-1] if st.get('asset_path') else resource_name)
+            name = asset_name
+            if name in used_names:
+                name = f'{asset_name}_{h[:8]}'
+            if name in used_names:
+                name = f'{asset_name}_{h}'
+            used_names.add(name)
+            result.append({
+                'filename': st['dds_export_name'],
+                'hash': h,
+                'asset_path': st.get('asset_path', ''),
+                'asset_name': name,
+                'resource_name': resource_name,
+                'width': st.get('width', 0),
+                'height': st.get('height', 0),
+            })
+        return result
+
     def build_path_complex_data(self):
         """Build data for PATH mode with Hash Complex enabled.
 
@@ -840,6 +907,20 @@ class ModExporter:
                     {'group_idx': group['group_idx'], 'objects': group['objects']}
                     for group in groups
                 ]
+        # Assign a unique override section name per hash so two hashes sharing the
+        # same asset (e.g. one image wired into multiple node groups) do not produce
+        # duplicate [TextureOverrideTexture...] section names in the ini.
+        used_names = set()
+        for h, choices in hash_groups.items():
+            asset_name = choices[0].get('asset_name') or choices[0].get('resource_name') or 'texture'
+            name = asset_name
+            if name in used_names:
+                name = f'{asset_name}_{h[:8]}'
+            if name in used_names:
+                name = f'{asset_name}_{h}'
+            used_names.add(name)
+            for choice in choices:
+                choice['override_name'] = name
         return {
             'counters': counters,
             'hash_groups': hash_groups,

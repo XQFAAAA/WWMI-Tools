@@ -383,9 +383,7 @@ ps-t{{ slot_idx }} = ref ResourceBackup_ps-t{{ slot_idx }}
 
 {%- for hash, choices in path_complex.hash_groups.items() %}
 
-; <asset-hash-stream>
-; {{ choices[0].width }}x{{ choices[0].height }}
-[TextureOverrideTexture{{ choices[0].asset_name }}]
+[TextureOverrideTexture{{ choices[0].override_name }}]
 hash = {{ hash }}
 match_priority = 0
 {%- for choice in choices %}
@@ -393,7 +391,6 @@ if $texture_component{{ choice.component_idx }}_count == {{ choice.group_idx }}
     this = ref ResourceTexture{{ choice.resource_name }}
 endif
 {%- endfor %}
-; </asset-hash-stream>
 {%- endfor %}
 
 {%- for texture in path_textures %}
@@ -402,17 +399,14 @@ endif
 filename = Textures/{{ texture.filename }}
 {%- endfor %}
 {%- elif cfg.texture_mode == 'PATH' %}
-{%- for texture in path_textures %}
+{%- for texture in path_hash_textures %}
 
-; <asset-hash-stream>
-; {{ texture.width }}x{{ texture.height }}
 [TextureOverrideTexture{{ texture.asset_name }}]
 hash = {{ texture.hash }}
 match_priority = 0
 if $object_detected
     this = ResourceTexture{{ texture.resource_name }}
 endif
-; </asset-hash-stream>
 {%- endfor %}
 
 {%- for texture in path_textures %}
