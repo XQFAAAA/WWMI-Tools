@@ -656,7 +656,7 @@ ps-t{{ slot_idx }} = ref ResourceBackup_ps-t{{ slot_idx }}
 
 {%- for hash, choices in path_complex.hash_groups.items() %}
 
-[TextureOverrideTexture{{ choices[0].override_name }}]
+[TextureOverrideTexture{{ loop.index0 }}]
 hash = {{ hash }}
 match_priority = 0
 {%- for choice in choices %}
@@ -674,7 +674,7 @@ filename = Textures/{{ texture.filename }}
 {%- elif cfg.texture_mode == 'PATH' %}
 {%- for texture in path_hash_textures %}
 
-[TextureOverrideTexture{{ texture.asset_name }}]
+[TextureOverrideTexture{{ loop.index0 }}]
 hash = {{ texture.hash }}
 match_priority = 0
 if $object_detected

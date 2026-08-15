@@ -383,14 +383,9 @@ class ObjectMergerWWMI(ObjectMerger):
                             hash_value = slot_data_entry.get('hash', '')
                             if hash_value and hash_value not in path_hash_textures:
                                 path_hash_textures[hash_value] = {
-                                    'image': image,
                                     'dds_export_name': dds_export_name,
                                     'resource_name': resource_name,
                                     'hash': hash_value,
-                                    'asset_path': asset_path,
-                                    'asset_name': asset_name,
-                                    'width': slot_data_entry.get('width', 0),
-                                    'height': slot_data_entry.get('height', 0),
                                 }
 
                         if node_group_info['inputs']:
@@ -788,25 +783,17 @@ class ModExporter:
         print(f'Disk write time: {time.time() - start_time :.3f}s')
 
     def build_path_textures(self):
-        """Build the texture list for the PATH mode ini section.
+        """Build the ResourceTexture section data for PATH mode.
 
         Textures are collected from node groups, hash/asset info read from
         ShaderTextureUsage.json per slot.
         """
         result = []
         for st in self.slot_textures or []:
-            asset_path = st.get('asset_path', '')
-            resource_name = st.get('resource_name', '')
-            asset_name = st.get('asset_name', '') or (
-                asset_path.rsplit('.', 1)[-1] if asset_path else resource_name)
             result.append({
                 'filename': st['dds_export_name'],
                 'hash': st.get('hash', ''),
-                'asset_path': asset_path,
-                'asset_name': asset_name,
-                'resource_name': resource_name,
-                'width': st.get('width', 0),
-                'height': st.get('height', 0),
+                'resource_name': st.get('resource_name', ''),
             })
         return result
 
@@ -817,32 +804,17 @@ class ModExporter:
         multiple node groups (one hash per slot) would only keep the first hash.
         This method instead returns one entry per hash so every hash gets its own
         ``[TextureOverrideTexture]`` section (all referencing the same exported
-        texture). Section names stay unique by suffixing colliding asset names
-        with a short hash.
+        texture). Section names are numbered with the loop index, like HASH mode.
         """
-        used_names = set()
         result = []
         for st in self._path_hash_textures or []:
             h = st.get('hash', '')
             if not h:
                 continue
-            resource_name = st.get('resource_name', '')
-            asset_name = st.get('asset_name', '') or (
-                st.get('asset_path', '').rsplit('.', 1)[-1] if st.get('asset_path') else resource_name)
-            name = asset_name
-            if name in used_names:
-                name = f'{asset_name}_{h[:8]}'
-            if name in used_names:
-                name = f'{asset_name}_{h}'
-            used_names.add(name)
             result.append({
                 'filename': st['dds_export_name'],
                 'hash': h,
-                'asset_path': st.get('asset_path', ''),
-                'asset_name': name,
-                'resource_name': resource_name,
-                'width': st.get('width', 0),
-                'height': st.get('height', 0),
+                'resource_name': st.get('resource_name', ''),
             })
         return result
 
@@ -896,10 +868,6 @@ class ModExporter:
                                 'component_idx': component_idx,
                                 'group_idx': group['group_idx'],
                                 'resource_name': resource_name,
-                                'asset_name': inp.get('asset_name') or (
-                                    inp.get('asset_path', '').rsplit('.', 1)[-1] if inp.get('asset_path') else resource_name),
-                                'width': inp.get('width', 0),
-                                'height': inp.get('height', 0),
                             })
             if has_material:
                 counters.append(component_idx)
@@ -907,20 +875,6 @@ class ModExporter:
                     {'group_idx': group['group_idx'], 'objects': group['objects']}
                     for group in groups
                 ]
-        # Assign a unique override section name per hash so two hashes sharing the
-        # same asset (e.g. one image wired into multiple node groups) do not produce
-        # duplicate [TextureOverrideTexture...] section names in the ini.
-        used_names = set()
-        for h, choices in hash_groups.items():
-            asset_name = choices[0].get('asset_name') or choices[0].get('resource_name') or 'texture'
-            name = asset_name
-            if name in used_names:
-                name = f'{asset_name}_{h[:8]}'
-            if name in used_names:
-                name = f'{asset_name}_{h}'
-            used_names.add(name)
-            for choice in choices:
-                choice['override_name'] = name
         return {
             'counters': counters,
             'hash_groups': hash_groups,
