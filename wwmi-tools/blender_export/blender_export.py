@@ -734,6 +734,7 @@ class ModExporter:
             path_textures=self.build_path_textures() if self.cfg.texture_mode == 'PATH' else None,
             path_hash_textures=self.build_path_hash_textures() if self.cfg.texture_mode == 'PATH' else [],
             path_complex=self.build_path_complex_data() if (self.cfg.texture_mode == 'PATH' and self.cfg.hash_complex) else None,
+            slot_groups=self.build_slot_complex_data() if self.cfg.slot_complex else None,
         )
 
         self.ini = ini_maker
@@ -895,6 +896,48 @@ class ModExporter:
             for node_group in material.get('node_groups', [])
             for inp in node_group.get('inputs', [])
             if inp.get('hash') and inp.get('resource_name')
+        )
+
+    def build_slot_complex_data(self):
+        """Build grouped draw data for SLOT mode with Slot Complex enabled.
+
+        Objects sharing the same material texture mapping are grouped so the slot
+        judgment runs only once per material group instead of once per object.
+
+        Returns {component_idx: [{'node_groups': [...], 'objects': [TempObject, ...]}]}
+        in first-appearance order of each material signature."""
+        slot_groups = {}
+        for component_idx, component in enumerate(self.merged_object.components):
+            groups = []
+            group_of_signature = {}
+            for obj in component.objects:
+                signature = self._material_slot_signature(obj.material)
+                if signature not in group_of_signature:
+                    group_of_signature[signature] = len(groups)
+                    groups.append({
+                        'node_groups': obj.material.get('node_groups', []) if obj.material else [],
+                        'objects': [],
+                    })
+                groups[group_of_signature[signature]]['objects'].append(obj)
+            if groups:
+                slot_groups[component_idx] = groups
+        return slot_groups
+
+    @staticmethod
+    def _material_slot_signature(material):
+        """Return a hashable signature of a material's slot mapping.
+
+        Two materials that render the same slot judgment (same slot, filter_index and
+        resource assignments in the same order) can safely share a draw group in SLOT
+        complex mode. Objects without a material use a distinct None signature."""
+        if material is None:
+            return None
+        return tuple(
+            tuple(
+                (inp.get('slot'), inp.get('filter_index'), inp.get('resource_name'))
+                for inp in node_group.get('inputs', [])
+            )
+            for node_group in material.get('node_groups', [])
         )
 
     def _find_texture_format(self, dds_export_name):

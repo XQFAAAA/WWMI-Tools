@@ -49,6 +49,7 @@ class IniMaker:
     path_textures: list = None
     path_hash_textures: list = None
     path_complex: dict = None
+    slot_groups: dict = None
     formatter: TextFormatter = TextFormatter()
     # Generated
     namespace: str = field(init=False)

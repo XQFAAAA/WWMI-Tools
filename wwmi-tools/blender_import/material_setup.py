@@ -217,10 +217,30 @@ def _get_or_create_node_group(ng_name, texture_slots):
         if role and role not in slot_roles.values():
             slot_roles[slot_key] = role
 
-    normal_slot = next((s for s, r in slot_roles.items() if r == 'N'), None)
-    ftm_slot = next((s for s, r in slot_roles.items() if r == 'FTM'), None)
-    rgid_slot = next((s for s, r in slot_roles.items() if r == 'RGID'), None)
-    d_slot = next((s for s, r in slot_roles.items() if r == 'D'), None)
+    # Fallback: if no D/N/FTM/RGID suffix found, match roles by texture format,
+    # preferring the largest width, then the earliest slot position.
+    if not slot_roles:
+        def _pick_slot(role_format):
+            candidates = [s for s in sorted_slots
+                          if texture_slots[s].get('format', '') == role_format]
+            if not candidates:
+                return None
+            return max(candidates,
+                       key=lambda s: (texture_slots[s].get('width', 0), -sorted_slots.index(s)))
+
+        d_slot = _pick_slot('BC7_UNORM_SRGB')
+        ftm_slot = _pick_slot('BC3_UNORM')
+        normal_slot = _pick_slot('BC7_UNORM')
+        rgid_slot = _pick_slot('R8_UNORM')
+        # N and ID must both be matched, otherwise connect neither
+        if normal_slot is None or rgid_slot is None:
+            normal_slot = None
+            rgid_slot = None
+    else:
+        normal_slot = next((s for s, r in slot_roles.items() if r == 'N'), None)
+        ftm_slot = next((s for s, r in slot_roles.items() if r == 'FTM'), None)
+        rgid_slot = next((s for s, r in slot_roles.items() if r == 'RGID'), None)
+        d_slot = next((s for s, r in slot_roles.items() if r == 'D'), None)
 
     # Interface name per slot (full form, e.g. ps-t0 -> 'ps-t0: T_..._N')
     slot_iface = {k: _get_slot_interface_name(k, texture_slots[k].get('filename', '')) for k in sorted_slots}
@@ -300,27 +320,11 @@ def _get_or_create_node_group(ng_name, texture_slots):
         separate_node.location = (-380, 47)
         links.new(input_node.outputs[slot_iface[ftm_slot]], separate_node.inputs['Color'])
 
-    # D role: Map Range + Mix (shadow overlay on diffuse)
-    mix_node = None
+    # D role: connect D texture directly to BSDF Base Color
     if d_slot:
-        map_range = nodes.new('ShaderNodeMapRange')
-        map_range.name = 'Map Range'
-        map_range.location = (-825, 494)
-        map_range.inputs['From Max'].default_value = 0.4
-        links.new(input_node.outputs[f'{slot_iface[d_slot]} alpha'], map_range.inputs['Value'])
-
-        mix_node = nodes.new('ShaderNodeMix')
-        mix_node.name = 'Mix'
-        mix_node.data_type = 'RGBA'
-        mix_node.blend_type = 'MULTIPLY'
-        mix_node.location = (-318, 587)
-        mix_node.inputs['Factor'].default_value = 0.5
-        links.new(input_node.outputs[slot_iface[d_slot]], mix_node.inputs['A'])
-        links.new(map_range.outputs[0], mix_node.inputs['B'])
+        links.new(input_node.outputs[slot_iface[d_slot]], bsdf.inputs['Base Color'])
 
     # Principled BSDF inputs
-    if mix_node:
-        links.new(mix_node.outputs['Result'], bsdf.inputs['Base Color'])
     if separate_node:
         links.new(separate_node.outputs['Green'], bsdf.inputs['Metallic'])
         links.new(separate_node.outputs['Red'], bsdf.inputs['Alpha'])

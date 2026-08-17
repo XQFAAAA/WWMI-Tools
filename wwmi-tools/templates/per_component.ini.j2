@@ -244,45 +244,47 @@ if $mod_enabled
     {%- endif %}
     {{note("Do by-slot resource overrides")}}
     run = CommandListOverrideSharedResources
-    {%- if cfg.texture_mode == 'SLOT' and not cfg.slot_complex and merged_object.components[loop.index0].material %}
-    {%- for node_group in merged_object.components[loop.index0].material.node_groups %}
-    if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
+    {%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex %}
+    {%- for group in slot_groups[component_index] %}
+    {%- for node_group in group.node_groups %}
+    {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
         {%- for input in node_group.inputs %}
         {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
         {%- endfor %}
-    endif
     {%- endfor %}
+    endif
+    {%- for obj in group.objects %}
+    ; Draw {{ obj.name }}
+    {%- if cfg.use_ini_toggles %}
+    if {{ formatter.format_ini_drawvar(obj.name) }}
+		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+    endif
+    {%- else %}
+	drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+    {%- endif %}
+    {%- endfor %}
+    {%- endfor %}
+    {%- else %}
+    {%- if cfg.texture_mode == 'SLOT' and not cfg.slot_complex and merged_object.components[loop.index0].material %}
+    {%- for node_group in merged_object.components[loop.index0].material.node_groups %}
+    {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
+        {%- for input in node_group.inputs %}
+        {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
+        {%- endfor %}
+    {%- endfor %}
+    endif
     {%- endif %}
     {%- for obj in merged_object.components[loop.index0].objects %}
 	; Draw {{ obj.name }}
 	{%- if cfg.use_ini_toggles %}
 	if {{ formatter.format_ini_drawvar(obj.name) }}
-        {%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex and obj.material %}
-        {%- for node_group in obj.material.node_groups %}
-        if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
-            {%- for input in node_group.inputs %}
-            {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
-            {%- endfor %}
-        endif
-        {%- endfor %}
-        {%- endif %}
 		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
 	endif
 	{%- else %}
-
-    {%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex and obj.material %}
-    {%- for node_group in obj.material.node_groups %}
-    if {%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} && {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}
-        {%- for input in node_group.inputs %}
-        {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
-        {%- endfor %}
-    endif
-    {%- endfor %}
-    {%- endif %}
-
 	drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
 	{%- endif %}
     {%- endfor %}
+    {%- endif %}
     {%- endif %}
     {{note("Restore required parts of original context")}}
     run = CommandListCleanupSharedResources
@@ -387,10 +389,10 @@ ps-t{{ slot_idx }} = ref ResourceBackup_ps-t{{ slot_idx }}
 hash = {{ hash }}
 match_priority = 0
 {%- for choice in choices %}
-if $texture_component{{ choice.component_idx }}_count == {{ choice.group_idx }}
+{% if loop.first %}if{% else %}elif{% endif %} $texture_component{{ choice.component_idx }}_count == {{ choice.group_idx }}
     this = ref ResourceTexture{{ choice.resource_name }}
-endif
 {%- endfor %}
+endif
 {%- endfor %}
 
 {%- for texture in path_textures %}
