@@ -143,9 +143,10 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
 
             if cfg.texture_mode == 'SLOT':
                 box = layout.box()
-                box.prop(cfg, 'match_dds_format')
                 box.prop(cfg, 'export_textures')
                 box.prop(cfg, 'slot_complex')
+                box.prop(cfg, 'match_dds_format')
+                box.prop(cfg, 'ps_t_format_check')
                 box.prop(cfg, 'rabbitfx')
             elif cfg.texture_mode == 'PATH':
                 box = layout.box()

@@ -204,9 +204,8 @@ class WWMI_Settings(bpy.types.PropertyGroup):
 
     slot_complex: BoolProperty(
         name="Slot Complex",
-        description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组。有dds格式风险",
+        description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组。有dds格式风险，不兼容Match DDS Format = None",
         default=False,
-        update=lambda self, context: setattr(self, 'match_dds_format', 'MORE') if self.slot_complex and self.match_dds_format == 'LESS' else None,
     ) # type: ignore
 
     hash_complex: BoolProperty(
@@ -226,11 +225,18 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         name="Match DDS Format",
         description="控制纹理槽位匹配的DDS格式范围",
         items=[
+            ('NONE', 'None', '不进行dds格式匹配，TextureOverrideComponent节不再生成，draw部分if条件简化为if 1'),
             ('LESS', 'Less', '仅匹配typeless格式'),
             ('MORE', 'More', '匹配typeless + ShaderTextureUsage中的原始格式'),
             ('MOST', 'Most', '匹配所有同前缀格式变体'),
         ],
         default='MORE',
+    ) # type: ignore
+
+    ps_t_format_check: BoolProperty(
+        name="ps-tx->format",
+        description="在draw的if条件中为每个ps-t槽位增加`ps-tN->format == <数值>`判断，数值来自ShaderTextureUsage中的原始DXGI格式",
+        default=False,
     ) # type: ignore
 
     mod_skeleton_type: bpy.props.EnumProperty(

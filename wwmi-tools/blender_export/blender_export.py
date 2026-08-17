@@ -332,7 +332,9 @@ class ObjectMergerWWMI(ObjectMerger):
                             node_group_info['inputs'].append(input_info)
 
                             # Add to component match_formats
-                            if match_format_enum is not None:
+                            # NONE mode skips dds format matching: no TextureOverrideComponent
+                            # sections are generated, draw-time if conditions collapse to `if 1`
+                            if match_format_enum is not None and match_mode != 'NONE':
                                 if match_format_enum.value not in component_match_formats:
                                     if match_mode == 'LESS':
                                         # Less: single match_format (typeless)
