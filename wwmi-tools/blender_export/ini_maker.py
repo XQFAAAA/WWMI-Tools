@@ -118,6 +118,8 @@ class IniMaker:
 
         if cfg.mod_skeleton_type == 'MERGED':
             default_template_path = default_templates_path / 'merged.ini.j2'
+        elif cfg.mod_skeleton_type == 'MERGED_INSTANCE':
+            default_template_path = default_templates_path / 'merged_instance.ini.j2'
         elif cfg.mod_skeleton_type == 'COMPONENT':
             default_template_path = default_templates_path / 'per_component.ini.j2'
         else:

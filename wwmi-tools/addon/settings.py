@@ -244,9 +244,18 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         description="Select the same skeleton type that was used for import! Defines logic of exported mod.ini.",
         items=[
             ('MERGED', 'Merged', 'Mesh with this skeleton should have unified list of Vertex Groups'),
+            ('MERGED_INSTANCE', 'Merged Instance', 'Merged skeleton with support for multiple instances of the same object on screen (uses 16-bit blend indices, export Blend_R16.buf)'),
             ('COMPONENT', 'Per-Component', 'Mesh with this skeleton should have its Vertex Groups split into per-component lists.'),
         ],
         default=0,
+    ) # type: ignore
+
+    mod_merged_instance_count: IntProperty(
+        name="Instance Count",
+        description="Number of simultaneous instances of the modded object to support. Defines how many skeleton merge slots (merge_status_id, pools, etc.) are generated in the exported mod.ini",
+        default=3,
+        min=1,
+        max=16,
     ) # type: ignore
 
     apply_all_modifiers: BoolProperty(

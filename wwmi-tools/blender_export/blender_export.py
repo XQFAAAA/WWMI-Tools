@@ -17,9 +17,9 @@ from ..migoto_io.blender_interface.collections import *
 from ..migoto_io.blender_interface.objects import *
 from ..migoto_io.blender_interface.mesh import *
 from ..migoto_io.blender_tools.meshes import *
-from ..migoto_io.data_model.byte_buffer import NumpyBuffer
+from ..migoto_io.data_model.byte_buffer import NumpyBuffer, Semantic, AbstractSemantic, BufferSemantic, BufferLayout
 from ..migoto_io.data_model.data_model import DataModel
-from ..migoto_io.data_model.dxgi_format import DXGIFormatIndex
+from ..migoto_io.data_model.dxgi_format import DXGIFormatIndex, DXGIFormat
 
 from ..extract_frame_data.metadata_format import read_metadata, ExtractedObject
 
@@ -623,7 +623,7 @@ class ModExporter:
             apply_modifiers=self.cfg.apply_all_modifiers,
             context=self.context,
             collection=self.cfg.component_collection,
-            skeleton_type=SkeletonType.Merged if self.cfg.mod_skeleton_type == 'MERGED' else SkeletonType.PerComponent,
+            skeleton_type=SkeletonType.Merged if self.cfg.mod_skeleton_type in ('MERGED', 'MERGED_INSTANCE') else SkeletonType.PerComponent,
             fill_missing_mesh_data=self.cfg.fill_missing_mesh_data,
             add_missing_vertex_groups=self.cfg.add_missing_vertex_groups,
             texture_mode=self.cfg.texture_mode,
@@ -655,7 +655,7 @@ class ModExporter:
                 buffers_format[buffer_name] = buffer_layout.get_layout()
 
         index_layout = None
-        if len(self.merged_object.object.vertex_groups) > 256:
+        if self.cfg.mod_skeleton_type == 'MERGED_INSTANCE' or len(self.merged_object.object.vertex_groups) > 256:
             index_layout = []
             for component in self.merged_object.components:
                 index_layout.append(component.index_count)
@@ -695,21 +695,104 @@ class ModExporter:
         # Build blend remap system metadata
         remapped_vgs_counts = self.buffers.pop('BlendRemapLayout', None)
         if remapped_vgs_counts is not None:
-            remap_id = 0
-            for component_id, vg_count in enumerate(remapped_vgs_counts.data.tolist()):
-                if vg_count == 0:
-                    continue
-                component = self.merged_object.components[component_id]
-                if vg_count > 256:            
-                    raise ConfigError('component_collection', f'Component{component_id} 256 VG limit exceeded!\n'
-                                      f'Currently it consists of {len(component.objects)} object(s) using total of {vg_count} VGs with non-zero weights.\n'
-                                      f'Please reduce the number of non-empty VGs or split objects between different components.')
-                component.blend_remap_id = remap_id
-                component.blend_remap_vg_count = vg_count
-                remap_id += 1
-            self.merged_object.blend_remap_count = remap_id
+            if self.cfg.mod_skeleton_type == 'MERGED_INSTANCE':
+                # Merged instance mode uses 16-bit blend indices (Blend_R16.buf),
+                # so the 256 VG per component limit no longer applies and the
+                # blend remap bookkeeping is not needed.
+                pass
+            else:
+                remap_id = 0
+                for component_id, vg_count in enumerate(remapped_vgs_counts.data.tolist()):
+                    if vg_count == 0:
+                        continue
+                    component = self.merged_object.components[component_id]
+                    if vg_count > 256:            
+                        raise ConfigError('component_collection', f'Component{component_id} 256 VG limit exceeded!\n'
+                                          f'Currently it consists of {len(component.objects)} object(s) using total of {vg_count} VGs with non-zero weights.\n'
+                                          f'Please reduce the number of non-empty VGs or split objects between different components.')
+                    component.blend_remap_id = remap_id
+                    component.blend_remap_vg_count = vg_count
+                    remap_id += 1
+                self.merged_object.blend_remap_count = remap_id
+
+        # Build Blend_R16.buf for merged instance mode (16-bit blend indices and weights)
+        if self.cfg.mod_skeleton_type == 'MERGED_INSTANCE':
+            self.build_blend_r16()
 
         print(f'Total mesh data collection time: {time.time() - start_time :.3f}s')
+
+    def build_blend_r16(self):
+        """Build Blend_R16.buf from Blend.buf and BlendRemapVertexVG.buf.
+
+        Follows the conversion algorithm of BlendBufferrR8-R16.py:
+        1. Zero-extend the 8-bit bone indices to 16-bit.
+        2. Convert the 8-bit UNORM weights to 16-bit UNORM via `x * 257`
+           (keeps the floating point value identical: x/255 == x*257/65535).
+        3. Replace the 16-bit bone indices with the 16-bit VG ids from
+           BlendRemapVertexVG.buf (they share the same byte layout, so the
+           index portion of each vertex is simply overwritten).
+
+        Resulting per-vertex layout (32 bytes):
+          [0:8]   R16G16B16A16_UINT   bone indices 0-3   (from BlendRemapVertexVG)
+          [8:16]  R16G16B16A16_UINT   bone indices 4-7   (from BlendRemapVertexVG)
+          [16:24] R16G16B16A16_UNORM  bone weights 0-3   (from Blend * 257)
+          [24:32] R16G16B16A16_UNORM  bone weights 4-7   (from Blend * 257)
+        """
+        blend = self.buffers.get('Blend', None)
+        vg = self.buffers.get('BlendRemapVertexVG', None)
+        if blend is None or vg is None:
+            raise ConfigError('mod_skeleton_type',
+                'Blend_R16 export requires both `Blend` and `BlendRemapVertexVG` buffers to be generated!')
+
+        # Collect blend index/weight fields in layout order
+        index_fields = [s for s in blend.layout.semantics if s.abstract.enum == Semantic.Blendindices]
+        weight_fields = [s for s in blend.layout.semantics if s.abstract.enum == Semantic.Blendweight]
+        if not index_fields or not weight_fields:
+            raise ConfigError('mod_skeleton_type',
+                'Blend buffer layout is missing BLENDINDICES/BLENDWEIGHT semantics!')
+
+        indices_8 = numpy.concatenate([blend.get_field(s.get_name()) for s in index_fields], axis=1)
+        weights_8 = numpy.concatenate([blend.get_field(s.get_name()) for s in weight_fields], axis=1)
+
+        # 16-bit indices: zero-extend 8-bit values
+        indices_16 = indices_8.astype(numpy.uint16)
+        # 16-bit UNORM weights: bit-replicate 8-bit values (x * 257)
+        weights_16 = (weights_8.astype(numpy.uint16) * 257)
+
+        # 16-bit VG ids replace the bone indices of each vertex
+        vg_ids = vg.get_field(vg.layout.semantics[0].get_name()).astype(numpy.uint16)
+        if vg_ids.shape[1] != indices_16.shape[1]:
+            raise ConfigError('mod_skeleton_type',
+                f'BlendRemapVertexVG value count per vertex ({vg_ids.shape[1]}) '
+                f'does not match Blend index count per vertex ({indices_16.shape[1]})!')
+
+        # Build the R16 layout: all index chunks first, then all weight chunks
+        r16_semantics = []
+        for chunk in range(vg_ids.shape[1] // 4):
+            r16_semantics.append(BufferSemantic(
+                AbstractSemantic(Semantic.Blendindices, chunk),
+                DXGIFormat.R16_UINT, stride=8))
+        for chunk in range(weights_16.shape[1] // 4):
+            r16_semantics.append(BufferSemantic(
+                AbstractSemantic(Semantic.Blendweight, chunk),
+                DXGIFormat.R16_UNORM, stride=8))
+
+        r16 = NumpyBuffer(BufferLayout(r16_semantics), size=len(blend))
+
+        index_chunk = 0
+        weight_chunk = 0
+        for semantic in r16_semantics:
+            if semantic.abstract.enum == Semantic.Blendindices:
+                r16.set_field(AbstractSemantic(Semantic.Blendindices, index_chunk),
+                              vg_ids[:, index_chunk*4:(index_chunk+1)*4])
+                index_chunk += 1
+            else:
+                r16.set_field(AbstractSemantic(Semantic.Blendweight, weight_chunk),
+                              weights_16[:, weight_chunk*4:(weight_chunk+1)*4])
+                weight_chunk += 1
+
+        self.buffers['Blend_R16'] = r16
+        print(f'Blend_R16 buffer built ({len(blend)} vertices, {len(blend) * 32} bytes)')
     
     def build_mod_ini(self):
         start_time = time.time()

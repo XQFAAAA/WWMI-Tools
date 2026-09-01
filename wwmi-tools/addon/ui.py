@@ -137,6 +137,10 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         layout.row().prop(cfg, 'mod_skeleton_type')
         layout.row().prop(cfg, 'texture_mode')
 
+        if cfg.mod_skeleton_type == 'MERGED_INSTANCE':
+            box = layout.box()
+            box.prop(cfg, 'mod_merged_instance_count')
+
         if not cfg.partial_export:
 
             layout.row()
@@ -282,7 +286,7 @@ class WWMI_TOOLS_PT_SidePanelAdvancedExport(bpy.types.Panel):
             layout.row().prop(cfg, 'add_missing_vertex_groups')
             layout.row().prop(cfg, 'fill_missing_mesh_data')
             layout.row().prop(cfg, 'unrestricted_custom_shape_keys')
-            if cfg.mod_skeleton_type == 'MERGED':
+            if cfg.mod_skeleton_type in ('MERGED', 'MERGED_INSTANCE'):
                 layout.row().prop(cfg, 'skeleton_scale')
 
         layout.row().prop(cfg, 'partial_export')
