@@ -1,8 +1,12 @@
 
-
 这个分支版本增加从材质节点组导出的Texture的slot模式和path hash模式
 使用以下dll，能获得更好的体验，它包含贴图的资源路径的额外功能
 https://github.com/visaokc/WWMI-AssetPath-DLL-Core
+
+合并骨骼多实例先遣版现已推出
+但是由于我对pool的语法仍不是很熟悉
+整体代码结构还有待优化（性能没有多大影响，正是为了避免重复计算，才导致代码结构比较复杂）
+SQT更新的话，我也会及时更进
 
 # "Extract Objects From Dump" 修改项
 
