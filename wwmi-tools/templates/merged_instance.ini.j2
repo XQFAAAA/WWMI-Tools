@@ -48,15 +48,6 @@ global $mod_enabled = 0
 global $object_detected = 0
 {{note("Used to pass current merge status to CommandListMergeSkeleton and get resulting merge status")}}
 global $merge_status_id = 0
-{{note("Stores skeleton merging status of this component per instance for current frame:")}}
-{{note("0 - neither regular nor special skeleton bones data was collected for this component")}}
-{{note("1 - only regular skeleton bones data was collected for this component")}}
-{{note("2 - both regular and special skeleton bones data was collected for this component")}}
-{%- for instance in range(cfg.mod_merged_instance_count) %}
-{%- for component in extracted_object.components %}
-global $merge_status_id_{{ loop.index0 }}_{{ instance }} = 0
-{%- endfor %}
-{%- endfor %}
 {%- if cfg.texture_mode == 'PATH' and cfg.hash_complex and path_complex %}
 {%- for component_idx in path_complex.counters %}
 {{note("Stores current object index of Component %d being drawn to pick the right texture override" | format(component_idx))}}
@@ -80,6 +71,16 @@ global $instance_id = 0
 {%- for instance in range(cfg.mod_merged_instance_count) %}
 {{note("Stores the instance id of instance %d to pick the right pooled skeleton buffers at frame end" | format(instance))}}
 global $instance_id_{{ instance }} = 0
+{%- endfor %}
+{%- for component in extracted_object.components %}
+{{note("Stores skeleton merge status of Component %d per instance (indexed by $instance_id):" | format(loop.index0))}}
+{{note("0 - neither regular nor special skeleton bones data was collected for this component")}}
+{{note("1 - only regular skeleton bones data was collected for this component")}}
+{{note("2 - both regular and special skeleton bones data was collected for this component")}}
+[PoolMergeStatus_{{ loop.index0 }}]
+pool_size = {{ cfg.mod_merged_instance_count }}
+pool_index_type = fifo
+pool_variable_default_value = 0
 {%- endfor %}
 
 {{note("List of commands executed for every frame")}}
@@ -133,11 +134,9 @@ endif
 
 {{note("Copes hard to make merged skeleton work with WuWa 1.1+ pipeline")}}
 [CommandListUpdateMergedSkeleton]
-{{note("Reset skeleton merge status for all components per instance")}}
-{%- for instance in range(cfg.mod_merged_instance_count) %}
+{{note("Reset skeleton merge status for all components (per instance via pool)")}}
 {%- for component in extracted_object.components %}
-$merge_status_id_{{ loop.index0 }}_{{ instance }} = 0
-{%- endfor %}
+PoolMergeStatus_{{ loop.index0 }}[*] = 0
 {%- endfor %}
 {{note("Copy skeleton merged in previous frame to new buffer so we could force it to vs-cb4 slot")}}
 ResourceMergedSkeleton = copy ResourceMergedSkeletonRW
@@ -147,6 +146,9 @@ ResourceExtraMergedSkeleton = copy ResourceExtraMergedSkeletonRW
 {%- for instance in range(cfg.mod_merged_instance_count) %}
 {{note("Copy pooled skeleton of instance %d merged in previous frame so it could be forced to vs-cb slots" | format(instance))}}
 PoolMergedSkeleton[$instance_id_{{ instance }}] = copy PoolMergedSkeletonRW[$instance_id_{{ instance }}]
+{%- endfor %}
+{%- for instance in range(cfg.mod_merged_instance_count) %}
+{{note("Copy pooled extra skeleton of instance %d merged in previous frame so it could be forced to vs-cb slots" | format(instance))}}
 PoolExtraMergedSkeleton[$instance_id_{{ instance }}] = copy PoolExtraMergedSkeletonRW[$instance_id_{{ instance }}]
 {%- endfor %}
 
@@ -384,22 +386,18 @@ if $mod_enabled
     if #PoolMergedSkeletonRW[$instance_id] == -1
         PoolMergedSkeletonRW[$instance_id] = copy ResourceMergedSkeletonRW
     endif
-    {%- for instance in range(cfg.mod_merged_instance_count) %}
-    {{note("Try to get skeleton data of instance %d from each call of the stack until merge status is 2 (see Constants for details)" | format(instance))}}
-    if #PoolMergedSkeletonRW[$instance_id] == {{ instance }}
-        if $merge_status_id_{{ component_index }}_{{ instance }} != 2
-            {{note("Configure SkeletonMerger shader based on VG layout of current component")}}
-            $\WWMIv1\vg_offset = {{ extracted_object.components[component_index].vg_offset }}
-            $\WWMIv1\vg_count = {{ extracted_object.components[component_index].vg_count }}
-            {{note("Pass current merge status to MergeSkeleton command list")}}
-            $merge_status_id = $merge_status_id_{{ component_index }}_{{ instance }}
-            {{note("Execute MergeSkeleton command list, updated merge status will be written to $merge_status_id")}}
-            run = CommandListMergeSkeleton
-            {{note("Remember merge status locally")}}
-            $merge_status_id_{{ component_index }}_{{ instance }} = $merge_status_id
-        endif
+    {{note("Try to get skeleton data of the current instance until merge status is 2 (see Constants for details)")}}
+    if $PoolMergeStatus_{{ component_index }}[$instance_id] != 2
+        {{note("Configure SkeletonMerger shader based on VG layout of current component")}}
+        $\WWMIv1\vg_offset = {{ extracted_object.components[component_index].vg_offset }}
+        $\WWMIv1\vg_count = {{ extracted_object.components[component_index].vg_count }}
+        {{note("Pass current merge status to MergeSkeleton command list")}}
+        $merge_status_id = $PoolMergeStatus_{{ component_index }}[$instance_id]
+        {{note("Execute MergeSkeleton command list, updated merge status will be written to $merge_status_id")}}
+        run = CommandListMergeSkeleton
+        {{note("Remember merge status locally")}}
+        $PoolMergeStatus_{{ component_index }}[$instance_id] = $merge_status_id
     endif
-    {%- endfor %}
     {{note("Override draw call if we have a merged skeleton ready for the current instance")}}
     if #PoolMergedSkeleton[$instance_id] !== -1
     {%- if merged_object.components[component_index].objects | length > 0 %}
