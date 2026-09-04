@@ -75,8 +75,10 @@ global persist {{ formatter.format_ini_drawvar(obj.name) }} = 1
 {%- endfor %}
 {%- endfor %}
 {%- endif %}
+{{note("Stores the instance id of the current draw call, captured from the marked Mesh Data CB (see TextureOverrideMeshDataCB)")}}
+global $instance_id = 0
 {%- for instance in range(cfg.mod_merged_instance_count) %}
-{{note("Stores vs-cb2 value of instance %d to pick the right pooled skeleton buffers at frame end" | format(instance))}}
+{{note("Stores the instance id of instance %d to pick the right pooled skeleton buffers at frame end" | format(instance))}}
 global $instance_id_{{ instance }} = 0
 {%- endfor %}
 
@@ -211,6 +213,13 @@ hash = {{ extracted_object.cb4_hash }}
 match_priority = 0
 filter_index = 3381.7777
 
+{{note("Marks Mesh Data CB resource (universal hash 358d62cb) with arbitrary value 3380.7777")}}
+{{note("Allows to capture the instance id of the current draw call from vs-cb2/vs-cb3 into $instance_id")}}
+[TextureOverrideMeshDataCB]
+hash = 358d62cb
+match_priority = 0
+filter_index = 3380.7777
+
 {{note("Updates merged skeleton buffers with skeleton data of calling component")}}
 {{note("The main problem is we can't reliably identify type of skeleton just from the buffer alone since both have the same hash")}}
 {{note("Luckily, any relevant shader call within the stack has one of the following slot usage patterns:")}}
@@ -220,7 +229,7 @@ filter_index = 3381.7777
 {{note("So by the time we've finished processing the stack we can reliably grab:")}}
 {{note("* Regular skeleton from vs-cb4 (pattern 2 or 3), since special skeleton never goes there")}}
 {{note("* Special skeleton from vs-cb3 (pattern 3), since we know for sure that regular currently is in vs-cb4")}}
-{{note("Since @vs-cb2 records the instance id of the current draw call, each instance merges its own skeleton only once per frame")}}
+{{note("Since $instance_id records the instance id of the current draw call (captured from the marked Mesh Data CB), each instance merges its own skeleton only once per frame")}}
 [CommandListMergeSkeleton]
 {{note("Here we're using $merge_status_id as both 'function' input aka argument and return result")}}
 {{note("We're doing so to prevent wasting compute resources on job that's already done for current frame")}}
@@ -232,17 +241,17 @@ if $merge_status_id == 0
         {{note("Pass constant buffer with regular skeleton data to copy bones from")}}
 		cs-cb8 = ref vs-cb4
         {{note("Initialize the pooled skeleton buffer of this instance if it hasn't been initialized yet")}}
-        if #PoolMergedSkeletonRW[@vs-cb2] == -1
-            PoolMergedSkeletonRW[@vs-cb2] = copy ResourceMergedSkeletonRW
+        if #PoolMergedSkeletonRW[$instance_id] == -1
+            PoolMergedSkeletonRW[$instance_id] = copy ResourceMergedSkeletonRW
         endif
         {%- for instance in range(cfg.mod_merged_instance_count) %}
         {%- if loop.first %}
-        if #PoolMergedSkeletonRW[@vs-cb2] == {{ instance }}
+        if #PoolMergedSkeletonRW[$instance_id] == {{ instance }}
         {%- else %}
-        elif #PoolMergedSkeletonRW[@vs-cb2] == {{ instance }}
+        elif #PoolMergedSkeletonRW[$instance_id] == {{ instance }}
         {%- endif %}
-            {{note("Remember vs-cb2 (instance id) of the matched pool slot")}}
-            $instance_id_{{ instance }} = @vs-cb2
+            {{note("Remember the instance id of the matched pool slot")}}
+            $instance_id_{{ instance }} = $instance_id
             {{note("Pass buffer that gonna store regular skeleton data of all components of this instance")}}
             cs-u6 = ResourceMergedSkeletonRW{{ instance }}
             {{note("Set custom scale for skeleton, changing size of the entire model")}}
@@ -250,7 +259,7 @@ if $merge_status_id == 0
             {{note("Run Skeleton Merger CS to merge regular skeleton data of current component into this instance's buffer")}}
             run = CustomShader\WWMIv1\SkeletonMerger
             {{note("Associate the merged buffer with the pool slot of this instance")}}
-            PoolMergedSkeletonRW[@vs-cb2] = ref ResourceMergedSkeletonRW{{ instance }}
+            PoolMergedSkeletonRW[$instance_id] = ref ResourceMergedSkeletonRW{{ instance }}
         {%- endfor %}
         endif
         {{note("Memorize that we've merged regular skeleton data of current frame")}}
@@ -266,17 +275,17 @@ if $merge_status_id == 1
         {{note("Pass constant buffer with special skeleton data to copy bones from")}}
 		cs-cb8 = ref vs-cb3
         {{note("Initialize the pooled extra skeleton buffer of this instance if it hasn't been initialized yet")}}
-        if #PoolExtraMergedSkeletonRW[@vs-cb2] == -1
-            PoolExtraMergedSkeletonRW[@vs-cb2] = copy ResourceExtraMergedSkeletonRW
+        if #PoolExtraMergedSkeletonRW[$instance_id] == -1
+            PoolExtraMergedSkeletonRW[$instance_id] = copy ResourceExtraMergedSkeletonRW
         endif
         {%- for instance in range(cfg.mod_merged_instance_count) %}
         {%- if loop.first %}
-        if #PoolExtraMergedSkeletonRW[@vs-cb2] == {{ instance }}
+        if #PoolExtraMergedSkeletonRW[$instance_id] == {{ instance }}
         {%- else %}
-        elif #PoolExtraMergedSkeletonRW[@vs-cb2] == {{ instance }}
+        elif #PoolExtraMergedSkeletonRW[$instance_id] == {{ instance }}
         {%- endif %}
-            {{note("Remember vs-cb2 (instance id) of the matched pool slot")}}
-            $instance_id_{{ instance }} = @vs-cb2
+            {{note("Remember the instance id of the matched pool slot")}}
+            $instance_id_{{ instance }} = $instance_id
             {{note("Pass buffer that gonna store special skeleton data of all components of this instance")}}
             cs-u6 = ResourceExtraMergedSkeletonRW{{ instance }}
             {{note("Set custom scale for skeleton, changing size of the entire model")}}
@@ -284,7 +293,7 @@ if $merge_status_id == 1
             {{note("Run Skeleton Merger CS to merge special skeleton data of current component into this instance's buffer")}}
             run = CustomShader\WWMIv1\SkeletonMerger
             {{note("Associate the merged buffer with the pool slot of this instance")}}
-            PoolExtraMergedSkeletonRW[@vs-cb2] = ref ResourceExtraMergedSkeletonRW{{ instance }}
+            PoolExtraMergedSkeletonRW[$instance_id] = ref ResourceExtraMergedSkeletonRW{{ instance }}
         {%- endfor %}
         endif
         {{note("Memorize that we've merged both regular and special skeleton data of current frame")}}
@@ -330,14 +339,14 @@ vb4->ElementOffset(ATTRIBUTE, 3) = 0
 vb4->ElementOffset(ATTRIBUTE, 14) = 8
 vb4->ElementOffset(ATTRIBUTE, 4) = 16
 vb4->ElementOffset(ATTRIBUTE, 15) = 24
-{{note("Pass merged skeleton of the current instance (identified by @vs-cb2) to bones data CB slots")}}
+{{note("Pass merged skeleton of the current instance (identified by $instance_id) to bones data CB slots")}}
 if vs-cb4 == 3381.7777
-    vs-cb4 = ref PoolMergedSkeleton[@vs-cb2]
+    vs-cb4 = ref PoolMergedSkeleton[$instance_id]
     if vs-cb3 == 3381.7777
-        vs-cb3 = ref PoolExtraMergedSkeleton[@vs-cb2]
+        vs-cb3 = ref PoolExtraMergedSkeleton[$instance_id]
     endif
 elif vs-cb3 == 3381.7777
-    vs-cb3 = ref PoolMergedSkeleton[@vs-cb2]
+    vs-cb3 = ref PoolMergedSkeleton[$instance_id]
 endif
 {%- if unrestricted_custom_shape_keys and merged_object.shapekeys.vertex_count > 0 %}
 vb6 = null
@@ -365,13 +374,19 @@ match_index_count = {{ component.index_count }}
 {{note("Signal our mod that object is found on screen and we can start overriding it")}}
 $object_detected = 1
 if $mod_enabled
+    {{note("Capture the instance id of the current draw call from the marked Mesh Data CB (vs-cb2 or vs-cb3)")}}
+    if vs-cb2 == 3380.7777
+        $instance_id = @vs-cb2
+    elif vs-cb3 == 3380.7777
+        $instance_id = @vs-cb3
+    endif
     {{note("Initialize the pooled skeleton buffer of the current instance if it hasn't been initialized yet")}}
-    if #PoolMergedSkeletonRW[@vs-cb2] == -1
-        PoolMergedSkeletonRW[@vs-cb2] = copy ResourceMergedSkeletonRW
+    if #PoolMergedSkeletonRW[$instance_id] == -1
+        PoolMergedSkeletonRW[$instance_id] = copy ResourceMergedSkeletonRW
     endif
     {%- for instance in range(cfg.mod_merged_instance_count) %}
     {{note("Try to get skeleton data of instance %d from each call of the stack until merge status is 2 (see Constants for details)" | format(instance))}}
-    if #PoolMergedSkeletonRW[@vs-cb2] == {{ instance }}
+    if #PoolMergedSkeletonRW[$instance_id] == {{ instance }}
         if $merge_status_id_{{ component_index }}_{{ instance }} != 2
             {{note("Configure SkeletonMerger shader based on VG layout of current component")}}
             $\WWMIv1\vg_offset = {{ extracted_object.components[component_index].vg_offset }}
@@ -386,7 +401,7 @@ if $mod_enabled
     endif
     {%- endfor %}
     {{note("Override draw call if we have a merged skeleton ready for the current instance")}}
-    if #PoolMergedSkeleton[@vs-cb2] !== -1
+    if #PoolMergedSkeleton[$instance_id] !== -1
     {%- if merged_object.components[component_index].objects | length > 0 %}
         {{note("Skip original draw call")}}
         handling = skip
