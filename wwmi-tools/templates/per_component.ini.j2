@@ -247,7 +247,7 @@ if $mod_enabled
     {%- if cfg.texture_mode == 'SLOT' and cfg.slot_complex %}
     {%- for group in slot_groups[component_index] %}
     {%- for node_group in group.node_groups %}
-    {% if loop.first %}if{% else %}elif{% endif %}{% if cfg.match_dds_format == 'NONE' %}{% if cfg.ps_t_format_check %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %}{% endif %}{% if cfg.rabbitfx %} ps == 1718.1 &&{% endif %} 1{% else %}{%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} &&{% if cfg.ps_t_format_check and input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %} {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}{% endif %}
+    {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %}{% if cfg.rabbitfx %} ps == 1718.1 &&{% endif %} 1
         {%- for input in node_group.inputs %}
         {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
         {%- endfor %}
@@ -267,7 +267,7 @@ if $mod_enabled
     {%- else %}
     {%- if cfg.texture_mode == 'SLOT' and not cfg.slot_complex and merged_object.components[loop.index0].material %}
     {%- for node_group in merged_object.components[loop.index0].material.node_groups %}
-    {% if loop.first %}if{% else %}elif{% endif %}{% if cfg.match_dds_format == 'NONE' %}{% if cfg.ps_t_format_check %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %}{% endif %}{% if cfg.rabbitfx %} ps == 1718.1 &&{% endif %} 1{% else %}{%- for input in node_group.inputs %} {{input.slot}} == {{input.filter_index}} &&{% if cfg.ps_t_format_check and input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %} {%- endfor %} {% if cfg.rabbitfx %}ps == 1718.1{% else %}1{% endif %}{% endif %}
+    {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %}{% if cfg.rabbitfx %} ps == 1718.1 &&{% endif %} 1
         {%- for input in node_group.inputs %}
         {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
         {%- endfor %}
@@ -305,53 +305,7 @@ endif
 
 ; Shading: Textures -------------------------
 
-{%- if cfg.texture_mode == 'SLOT' and cfg.match_dds_format == 'NONE' and slot_textures %}
-{%- for texture in slot_textures %}
-
-[ResourceTexture{{ texture.resource_name }}]
-filename = Textures/{{ texture.dds_export_name }}
-{%- endfor %}
-{%- endif %}
-
-{%- if cfg.texture_mode == 'SLOT' and cfg.match_dds_format == 'LESS' and slot_textures %}
-{%- for component in merged_object.components %}
-{%- set component_idx = loop.index0 %}
-{%- for mf in component.match_formats %}
-
-[TextureOverrideComponent{{ component_idx }}{{ mf.match_format.name }}]
-match_first_index = {{ extracted_object.components[component_idx].index_offset }}
-match_index_count = {{ extracted_object.components[component_idx].index_count }}
-match_priority = 100
-match_format = {{ mf.match_format.name }}
-filter_index = {{ mf.filter_index }}
-{%- endfor %}
-{%- endfor %}
-
-{%- for texture in slot_textures %}
-
-[ResourceTexture{{ texture.resource_name }}]
-filename = Textures/{{ texture.dds_export_name }}
-{%- endfor %}
-{%- endif %}
-
-{%- if cfg.texture_mode == 'SLOT' and cfg.match_dds_format in ('MORE', 'MOST') and slot_textures %}
-{%- for component in merged_object.components %}
-{%- set component_idx = loop.index0 %}
-{%- for mf in component.match_formats %}
-{%- if mf.match_formats is defined %}
-{%- for fmt in mf.match_formats %}
-
-[TextureOverrideComponent{{ component_idx }}{{ fmt.name }}]
-match_first_index = {{ extracted_object.components[component_idx].index_offset }}
-match_index_count = {{ extracted_object.components[component_idx].index_count }}
-match_priority = 100
-match_format = {{ fmt.name }}
-filter_index = {{ mf.filter_index }}
-{%- endfor %}
-{%- endif %}
-{%- endfor %}
-{%- endfor %}
-
+{%- if cfg.texture_mode == 'SLOT' and slot_textures %}
 {%- for texture in slot_textures %}
 
 [ResourceTexture{{ texture.resource_name }}]

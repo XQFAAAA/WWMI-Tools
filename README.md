@@ -48,13 +48,6 @@ SQT更新的话，我也会及时更进
 
 Export Textures并不影响Copy Textures功能，但我还是建议把Copy Textures关闭
 
-### "Match DDS Format" 选项
-
-选项分为Less、More、Most
-用来控制模糊匹配的格式多少
-如果每个component只使用一个节点组，建议选择Less
-如果每个component有多个节点组，建议选择More
-
 ### "Slot Complex" 选项
 
 按材质分离每个物体

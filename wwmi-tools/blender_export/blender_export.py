@@ -62,7 +62,6 @@ class ObjectMergerWWMI(ObjectMerger):
         self._texture_mode = kwargs.pop('texture_mode', 'HASH')
         self._slot_complex = kwargs.pop('slot_complex', False)
         self._hash_complex = kwargs.pop('hash_complex', False)
-        self._match_dds_format = kwargs.pop('match_dds_format', 'LESS')
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
         super().__init__(**kwargs)
 
@@ -123,7 +122,6 @@ class ObjectMergerWWMI(ObjectMerger):
         # Hash Complex (PATH mode) reads materials of all objects per component,
         # same as Slot Complex does for SLOT mode
         is_simple = not (self._slot_complex or (self._texture_mode == 'PATH' and self._hash_complex))
-        match_mode = self._match_dds_format  # 'LESS', 'MORE', 'MOST'
 
         # Regex for object/material name to extract component id
         component_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
@@ -140,7 +138,6 @@ class ObjectMergerWWMI(ObjectMerger):
         self._slot_warnings = []
 
         for component in self.components:
-            component_match_formats = {}  # key: match_format enum value, value: dict with match_format info
             component_material_collected = False  # For simple mode: only collect first material
 
             for temp_object in component.objects:
@@ -281,14 +278,12 @@ class ObjectMergerWWMI(ObjectMerger):
                             base_match = re.match(r'ps-t\d+', input_name)
                             base_input_name = base_match.group(0) if base_match else input_name
                             format_enum = None
-                            match_format_enum = None
                             slot_data = shader_texture_usage[component_key][found_vs_key][ps_key]
                             if base_input_name in slot_data:
                                 format_str = slot_data[base_input_name].get('format', '')
                                 if format_str:
                                     try:
                                         format_enum = DXGIFormatIndex[format_str]
-                                        match_format_enum = format_enum.to_typeless()
                                     except KeyError:
                                         print(f"Warning: Unknown format '{format_str}' for {input_name}")
 
@@ -304,13 +299,6 @@ class ObjectMergerWWMI(ObjectMerger):
                                 dds_export_name = base_name + '.dds'
                                 resource_name = sanitized
 
-                            if match_format_enum is not None:
-                                prefix = match_format_enum.name.split('_')[0]
-                                ascii_digits = ''.join(str(ord(c)) for c in prefix)
-                                filter_index = float(f"83.{ascii_digits}")
-                            else:
-                                filter_index = 0.0
-
                             slot_data_entry = slot_data.get(base_input_name, {})
                             asset_path = slot_data_entry.get('asset_path', '')
                             asset_name = slot_data_entry.get('asset_name', '') or (
@@ -318,8 +306,6 @@ class ObjectMergerWWMI(ObjectMerger):
                             input_info = {
                                 'slot': base_input_name,
                                 'format': format_enum,
-                                'match_format': match_format_enum,
-                                'filter_index': filter_index,
                                 'image': image,
                                 'dds_export_name': dds_export_name,
                                 'resource_name': resource_name,
@@ -330,41 +316,6 @@ class ObjectMergerWWMI(ObjectMerger):
                                 'height': slot_data_entry.get('height', 0),
                             }
                             node_group_info['inputs'].append(input_info)
-
-                            # Add to component match_formats
-                            # NONE mode skips dds format matching: no TextureOverrideComponent
-                            # sections are generated, draw-time if conditions collapse to `if 1`
-                            if match_format_enum is not None and match_mode != 'NONE':
-                                if match_format_enum.value not in component_match_formats:
-                                    if match_mode == 'LESS':
-                                        # Less: single match_format (typeless)
-                                        component_match_formats[match_format_enum.value] = {
-                                            'match_format': match_format_enum,
-                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                        }
-                                    elif match_mode == 'MORE':
-                                        # More: typeless + all original formats collected
-                                        fmt_list = [match_format_enum]
-                                        if format_enum and format_enum != match_format_enum:
-                                            fmt_list.append(format_enum)
-                                        component_match_formats[match_format_enum.value] = {
-                                            'match_format': match_format_enum,
-                                            'match_formats': fmt_list,
-                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                        }
-                                    else:
-                                        # Most: all same-prefix formats
-                                        same_prefix_formats = match_format_enum.get_same_prefix_formats()
-                                        component_match_formats[match_format_enum.value] = {
-                                            'match_format': match_format_enum,
-                                            'match_formats': same_prefix_formats,
-                                            'filter_index': float(f"83.{''.join(str(ord(c)) for c in match_format_enum.name.split('_')[0])}"),
-                                        }
-                                elif match_mode == 'MORE' and format_enum:
-                                    # Accumulate additional original formats with same typeless prefix
-                                    existing = component_match_formats[match_format_enum.value]
-                                    if format_enum not in existing['match_formats']:
-                                        existing['match_formats'].append(format_enum)
 
                             # Add to all_images (deduplicate by dds_export_name)
                             if dds_export_name not in all_images:
@@ -417,15 +368,12 @@ class ObjectMergerWWMI(ObjectMerger):
                     # Complex mode: attach material to temp_object
                     temp_object.material = material_info
 
-            # Attach match_formats to component
-            component.match_formats = list(component_match_formats.values())
-
         # Store slot_textures for later use
         self._slot_textures = list(all_images.values())
         # Per-hash texture entries for path mode override sections
         self._path_hash_textures = list(path_hash_textures.values())
 
-        print(f"Slot mode ({'simple' if is_simple else 'complex'}, match={match_mode}): collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
+        print(f"Slot mode ({'simple' if is_simple else 'complex'}): collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
 
     @staticmethod
     def fill_missing_data(objects):
@@ -629,7 +577,6 @@ class ModExporter:
             texture_mode=self.cfg.texture_mode,
             slot_complex=self.cfg.slot_complex,
             hash_complex=self.cfg.hash_complex,
-            match_dds_format=self.cfg.match_dds_format,
             shader_texture_usage=shader_texture_usage,
         )
         self.merged_object = object_merger.merged_object
@@ -1012,14 +959,14 @@ class ModExporter:
     def _material_slot_signature(material):
         """Return a hashable signature of a material's slot mapping.
 
-        Two materials that render the same slot judgment (same slot, filter_index and
-        resource assignments in the same order) can safely share a draw group in SLOT
+        Two materials that render the same slot judgment (same slot and resource
+        assignments in the same order) can safely share a draw group in SLOT
         complex mode. Objects without a material use a distinct None signature."""
         if material is None:
             return None
         return tuple(
             tuple(
-                (inp.get('slot'), inp.get('filter_index'), inp.get('resource_name'))
+                (inp.get('slot'), inp.get('resource_name'))
                 for inp in node_group.get('inputs', [])
             )
             for node_group in material.get('node_groups', [])

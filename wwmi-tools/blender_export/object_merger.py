@@ -40,7 +40,6 @@ class MergedObjectComponent:
     index_offset: int = 0
     blend_remap_id: int = -1
     blend_remap_vg_count: int = 0
-    match_formats: list = field(default_factory=list)
     material: dict = None
     
     def get_object(self, object_name):

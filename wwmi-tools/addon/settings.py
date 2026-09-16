@@ -204,7 +204,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
 
     slot_complex: BoolProperty(
         name="Slot Complex",
-        description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组。有dds格式风险，不兼容Match DDS Format = None",
+        description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组",
         default=False,
     ) # type: ignore
 
@@ -219,24 +219,6 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         description="控制模板中ps-t槽位的最大编号（如设置为7则最多到ps-t7）。影响CommandListTriggerResourceOverrides、ResourceBackup_ps-t、CommandListBackupTexture、CommandListRestoreTexture",
         default=11,
         min=1,
-    ) # type: ignore
-
-    match_dds_format: bpy.props.EnumProperty(
-        name="Match DDS Format",
-        description="控制纹理槽位匹配的DDS格式范围",
-        items=[
-            ('NONE', 'None', '不进行dds格式匹配，TextureOverrideComponent节不再生成，draw部分if条件简化为if 1'),
-            ('LESS', 'Less', '仅匹配typeless格式'),
-            ('MORE', 'More', '匹配typeless + ShaderTextureUsage中的原始格式'),
-            ('MOST', 'Most', '匹配所有同前缀格式变体'),
-        ],
-        default='MORE',
-    ) # type: ignore
-
-    ps_t_format_check: BoolProperty(
-        name="ps-tx->format",
-        description="在draw的if条件中为每个ps-t槽位增加`ps-tN->format == <数值>`判断，数值来自ShaderTextureUsage中的原始DXGI格式",
-        default=False,
     ) # type: ignore
 
     mod_skeleton_type: bpy.props.EnumProperty(
