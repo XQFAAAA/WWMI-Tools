@@ -50,6 +50,7 @@ class IniMaker:
     path_hash_textures: list = None
     path_complex: dict = None
     slot_groups: dict = None
+    menu_switches: list = field(default_factory=list)
     formatter: TextFormatter = TextFormatter()
     # Generated
     namespace: str = field(init=False)
@@ -259,6 +260,9 @@ class IniMaker:
         with open(list_gui_template_path, 'r', encoding='utf-8') as f:
             template_string = f.read()
 
+        # Map of mutual-exclusion groups (object name -> other object names in the same group)
+        exclusion_groups = self._build_mutual_exclusion_groups()
+
         # Collect all objects for ListGUI buttons (skip empty meshes with <= 4 vertices)
         list_gui_objects = []
         for component in self.merged_object.components:
@@ -268,6 +272,12 @@ class IniMaker:
                 list_gui_objects.append({
                     'name': obj.name,
                     'draw_var': self.formatter.format_ini_drawvar(obj.name),
+                    # Draw vars of the other members of the same mutual-exclusion group
+                    # (toggling one sets all the others to 0)
+                    'exclusive_others': [
+                        self.formatter.format_ini_drawvar(other)
+                        for other in exclusion_groups.get(obj.name, [])
+                    ],
                 })
 
         template = Template(template_string)
@@ -281,9 +291,43 @@ class IniMaker:
         result = ''.join([line + '\n' for line in rendered_string.split('\n') if not line.strip().startswith(';DEL')])
         return result
 
+    def _build_mutual_exclusion_groups(self):
+        """Build mutual-exclusion groups from parent-child relationships inside the
+        exported detection collection.
+
+        Every exported object whose parent is also exported belongs to the same
+        mutual-exclusion group as its parent and all of the parent's descendants
+        (recursively). Returns {object_name: [other object names in the group]}.
+        """
+        # object name -> parent object name (or None)
+        parent_map = {}
+        for component in self.merged_object.components:
+            for obj in component.objects:
+                parent_map[obj.name] = obj.parent
+
+        # Group all objects sharing the same root ancestor
+        root_groups = {}
+        for name in parent_map:
+            root = name
+            seen = set()
+            while parent_map.get(root) is not None:
+                if root in seen:  # safety against parent cycles
+                    break
+                seen.add(root)
+                root = parent_map[root]
+            root_groups.setdefault(root, []).append(name)
+
+        result = {}
+        for members in root_groups.values():
+            if len(members) <= 1:
+                continue
+            for name in members:
+                result[name] = [m for m in members if m != name]
+        return result
+
     def write_list_gui(self, mod_output_folder: Path):
         try:
-            from PIL import Image, ImageDraw
+            from PIL import Image, ImageDraw, ImageFont
             from .text_to_image import Text2Image, generate_solid_background, generate_button_border, generate_button_background
         except ImportError as e:
             raise ImportError(
@@ -302,6 +346,26 @@ class IniMaker:
         hlsl_src = Path(os.path.realpath(__file__)).parent.parent / 'templates' / 'draw_2d.hlsl'
         hlsl_dst = res_folder / 'draw_2d.hlsl'
         shutil_mod.copy(hlsl_src, hlsl_dst)
+        # Copy texture preview shader (draw_2d_textures.hlsl) from templates
+        tex_hlsl_src = Path(os.path.realpath(__file__)).parent.parent / 'templates' / 'draw_2d_textures.hlsl'
+        tex_hlsl_dst = res_folder / 'draw_2d_textures.hlsl'
+        if tex_hlsl_src.is_file():
+            shutil_mod.copy(tex_hlsl_src, tex_hlsl_dst)
+
+        # Copy left-side icon bar placeholder resources (Reload / Save)
+        # from the templates folder (State1-3 are generated below; user may replace later)
+        templates_dir = Path(os.path.realpath(__file__)).parent.parent / 'templates'
+        for icon_name in ('Reload', 'Save'):
+            icon_src = templates_dir / f'{icon_name}.png'
+            if icon_src.is_file():
+                shutil_mod.copy(icon_src, res_folder / f'{icon_name}.png')
+
+        # Copy texture-preview channel mode icons (rgb_alpha / rgb / alpha)
+        # from the templates folder (R/G/B channel icons are generated below)
+        for channel_name in ('ChannelRGBAlpha', 'ChannelRGB', 'ChannelAlpha'):
+            channel_src = templates_dir / f'{channel_name}.png'
+            if channel_src.is_file():
+                shutil_mod.copy(channel_src, res_folder / f'{channel_name}.png')
 
         # Generate background image (fully transparent)
         generate_solid_background(str(res_folder / 'Background.png'))
@@ -312,6 +376,41 @@ class IniMaker:
         # Generate shared button border and background (reused across all buttons)
         generate_button_border(str(res_folder / 'ButtonBorder.png'), button_w, button_h, border_thickness=4)
         generate_button_background(str(res_folder / 'ButtonBg.png'), button_w, button_h, border_thickness=4)
+
+        # Generate a dedicated texture-frame border (square, NOT the wide button strip,
+        # to avoid distortion). Frame width 0.125 -> 480px at 720px UI width.
+        # Reused for tinting; user may replace.
+        tex_frame_w = int(button_w * 0.125 / 0.1875)      # 480
+        tex_frame_h = tex_frame_w                         # square
+        generate_button_border(str(res_folder / 'TexFrameBorder.png'), tex_frame_w, tex_frame_h, border_thickness=8, border_radius=0)
+
+        # Generate side-button icons (R/G/B channel + 1/2/3 preset):
+        # Segoe UI Black (seguibl.ttf) bundled locally in templates so users without
+        # the font installed still get correct output. Square border (no rounded
+        # corners), white content so the UI hover/selected/normal tint colors them at
+        # runtime. User may replace later.
+        try:
+            side_size = 200
+            side_thick = 10
+            side_margin = 12  # 边框到边界的距离（对齐 ChannelRGBAlpha.png 的内容边距）
+            side_fill = (255, 255, 255, 255)
+            side_font = ImageFont.truetype(str(templates_dir / 'seguibl.ttf'), 180)
+            for ch, fn in [("R", "ChannelR.png"), ("G", "ChannelG.png"), ("B", "ChannelB.png"),
+                           ("1", "State1.png"), ("2", "State2.png"), ("3", "State3.png")]:
+                img = Image.new("RGBA", (side_size, side_size), (0, 0, 0, 0))
+                d = ImageDraw.Draw(img)
+                d.rectangle(
+                    [side_margin, side_margin,
+                     side_size - side_margin, side_size - side_margin],
+                    outline=side_fill, width=side_thick,
+                )
+                bbox = d.textbbox((0, 0), ch, font=side_font)
+                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                d.text(((side_size - w) / 2 - bbox[0], (side_size - h) / 2 - bbox[1]),
+                       ch, font=side_font, fill=side_fill)
+                img.save(res_folder / fn)
+        except Exception as e:
+            print(f"Warning: failed to generate side-button icons (will be missing in res/): {e}")
 
         # Text2Image: header/footer (transparent bg, no border, fixed width)
         t2i_header = Text2Image(
@@ -364,6 +463,14 @@ class IniMaker:
                 icon_name = self.formatter.format_ini_drawvar(obj.name).replace('$', '')
                 display_name = strip_component_prefix(obj.name)
                 t2i_button_text.generate_fixed(display_name, str(res_folder / f'{icon_name}.png'), button_w, button_h)
+
+        # Menu Switch button text images (one per switch list item)
+        for switch in (self.menu_switches or []):
+            t2i_button_text.generate_fixed(
+                switch['display_name'],
+                str(res_folder / f'{switch["identifier"]}.png'),
+                button_w, button_h,
+            )
 
         # Write ListGUI.ini
         list_gui_ini = self.build_list_gui_ini(

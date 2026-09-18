@@ -63,7 +63,149 @@ class ObjectMergerWWMI(ObjectMerger):
         self._slot_complex = kwargs.pop('slot_complex', False)
         self._hash_complex = kwargs.pop('hash_complex', False)
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
+        # Menu Switch (菜单切换) nodes collected from material node groups
+        self._menu_switches = []
+        # Blender node objects backing each switch, used for identity-based dedup
+        self._menu_switch_nodes = []
         super().__init__(**kwargs)
+
+    @staticmethod
+    def is_menu_switch_node(node):
+        """Detect Blender's native Menu Switch node (GeometryNodeMenuSwitch)."""
+        if node is None:
+            return False
+        if getattr(node, 'type', '') == 'MENU_SWITCH':
+            return True
+        bid = getattr(node, 'bl_idname', '') or ''
+        return 'menuswitch' in bid.lower()
+
+    @staticmethod
+    def _trace_to_image(socket):
+        """Trace a socket upstream through reroute (转接) nodes to an image node.
+        Returns the image or None."""
+        if not socket.is_linked:
+            return None
+        link = socket.links[0]
+        if link.is_muted:
+            return None
+        from_node = link.from_node
+        seen = set()
+        while getattr(from_node, 'type', '') == 'REROUTE' and from_node.inputs[0].is_linked:
+            if from_node in seen:
+                break
+            seen.add(from_node)
+            link = from_node.inputs[0].links[0]
+            if link.is_muted:
+                break
+            from_node = link.from_node
+        if getattr(from_node, 'type', '') != 'TEX_IMAGE' or getattr(from_node, 'mute', False):
+            return None
+        return getattr(from_node, 'image', None)
+
+    @staticmethod
+    def _image_base_name(image_name):
+        stem, ext = os.path.splitext(image_name)
+        if stem and ext.lower() in _IMAGE_EXTENSIONS:
+            return stem
+        return image_name
+
+    @staticmethod
+    def _image_export_names(base_name):
+        sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', base_name)
+        has_non_ascii = any(ord(c) > 127 for c in base_name)
+        if has_non_ascii:
+            ascii_name = unidecode(base_name).replace(' ', '')
+            sanitized_ascii = re.sub(r'[^a-zA-Z0-9_\-]', '_', ascii_name)
+            return sanitized_ascii, sanitized_ascii + '.dds'
+        return sanitized, base_name + '.dds'
+
+    @staticmethod
+    def _sanitize_switch_identifier(label):
+        sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', label)
+        has_non_ascii = any(ord(c) > 127 for c in label)
+        if has_non_ascii:
+            ascii_name = unidecode(label).replace(' ', '')
+            sanitized = re.sub(r'[^a-zA-Z0-9_\-]', '_', ascii_name)
+        return sanitized
+
+    def _register_menu_switch(self, node, all_images, slot_data_entry):
+        """Register a Menu Switch node (deduplicated by node object identity, so two
+        different nodes with the same name stay separate), trace all its input images
+        and add them to all_images so they get exported.
+        Returns the switch dict or None if it has no usable image inputs."""
+        # Deduplicate by node identity (underlying data pointer), not by name:
+        # the same physical node feeding multiple slots is one switch, but
+        # distinct same-named nodes are separate.
+        node_ptr = node.as_pointer()
+        for i, sw_node in enumerate(self._menu_switch_nodes):
+            if sw_node.as_pointer() == node_ptr:
+                return self._menu_switches[i]
+
+        index = len(self._menu_switches)
+        label = (getattr(node, 'label', None) or '').strip()
+        if label:
+            # Custom label: prefix with "Switch_" so the resource/pool/variable names
+            # (ResourceTextureSwitch_<label>, ...) never collide with regular image
+            # resources (ResourceTexture<label>)
+            identifier = f"Switch_{self._sanitize_switch_identifier(label)}"
+            display_name = label
+        else:
+            # No custom label: use indexed name (Switch0, Switch1, ...)
+            identifier = f'Switch{index}'
+            display_name = identifier
+
+        # Ensure identifier uniqueness in case two nodes share the same custom label
+        used_identifiers = {sw['identifier'] for sw in self._menu_switches}
+        if identifier in used_identifiers:
+            base = identifier
+            suffix = 1
+            while f'{base}_{suffix}' in used_identifiers:
+                suffix += 1
+            identifier = f'{base}_{suffix}'
+
+        input_resources = []
+        input_dds = []
+        # Menu Switch: inputs[0] is the "Menu" selector socket, the rest are data inputs
+        for input_idx, input_socket in enumerate(node.inputs):
+            if input_idx == 0:
+                continue
+            if (input_socket.name or '').strip().lower() in ('menu', '菜单'):
+                continue
+            image = self._trace_to_image(input_socket)
+            if image is None:
+                continue
+            base_name = self._image_base_name(image.name)
+            resource_name, dds_export_name = self._image_export_names(base_name)
+            input_resources.append(resource_name)
+            input_dds.append(dds_export_name)
+            if dds_export_name not in all_images:
+                all_images[dds_export_name] = {
+                    'image': image,
+                    'dds_export_name': dds_export_name,
+                    'resource_name': resource_name,
+                    'hash': slot_data_entry.get('hash', ''),
+                    'asset_path': slot_data_entry.get('asset_path', ''),
+                    'asset_name': slot_data_entry.get('asset_name', ''),
+                    'width': slot_data_entry.get('width', 0),
+                    'height': slot_data_entry.get('height', 0),
+                }
+
+        if not input_resources:
+            return None
+
+        switch = {
+            'node_name': node.name,
+            'index': index,
+            'identifier': identifier,
+            'display_name': display_name,
+            'inputs': input_resources,
+            'input_dds': input_dds,
+            'pool_size': len(input_resources),
+        }
+        self._menu_switch_nodes.append(node)
+        self._menu_switches.append(switch)
+        return switch
+
 
     def finalize_temp_objects_geometry(self):
         super().finalize_temp_objects_geometry()
@@ -102,6 +244,7 @@ class ObjectMergerWWMI(ObjectMerger):
                         new_temp_objects.append(TempObject(
                             name=sibling_name,
                             object=sibling,
+                            parent=temp_object.parent,
                         ))
             component.objects = new_temp_objects
 
@@ -247,6 +390,38 @@ class ObjectMergerWWMI(ObjectMerger):
                                 if link.is_muted:
                                     break
                                 from_node = link.from_node
+
+                            # Menu Switch node (Blender native): bind the slot to the switch
+                            # resource and collect all images connected to the switch's inputs
+                            if self._texture_mode == 'SLOT' and self.is_menu_switch_node(from_node):
+                                base_match = re.match(r'ps-t\d+', input_name)
+                                base_input_name = base_match.group(0) if base_match else input_name
+                                slot_data = shader_texture_usage[component_key][found_vs_key][ps_key]
+                                format_enum = None
+                                if base_input_name in slot_data:
+                                    format_str = slot_data[base_input_name].get('format', '')
+                                    if format_str:
+                                        try:
+                                            format_enum = DXGIFormatIndex[format_str]
+                                        except KeyError:
+                                            print(f"Warning: Unknown format '{format_str}' for {input_name}")
+                                slot_data_entry = slot_data.get(base_input_name, {})
+                                switch = self._register_menu_switch(from_node, all_images, slot_data_entry)
+                                if switch is None:
+                                    continue
+                                node_group_info['inputs'].append({
+                                    'slot': base_input_name,
+                                    'format': format_enum,
+                                    'image': None,
+                                    'dds_export_name': switch['input_dds'][0],
+                                    'resource_name': switch['identifier'],
+                                    'hash': slot_data_entry.get('hash', ''),
+                                    'asset_path': '',
+                                    'asset_name': '',
+                                    'width': 0,
+                                    'height': 0,
+                                })
+                                continue
 
                             # Check if the source is an image texture node
                             if from_node.type != 'TEX_IMAGE':
@@ -429,6 +604,7 @@ class ModExporter:
         self._slot_warnings = []
         self._path_hash_textures = []
         self._shader_texture_usage = None
+        self._menu_switches = []
 
         self.object_source_folder = resolve_path(cfg.object_source_folder)
         self.mod_output_folder = resolve_path(cfg.mod_output_folder)
@@ -586,6 +762,7 @@ class ModExporter:
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
             self._slot_warnings = getattr(object_merger, '_slot_warnings', [])
             self._path_hash_textures = getattr(object_merger, '_path_hash_textures', [])
+            self._menu_switches = getattr(object_merger, '_menu_switches', [])
             
         print(f'Merged object build time: {time.time() - start_time :.3f}s ({self.merged_object.vertex_count} vertices, {self.merged_object.index_count} indices)')
 
@@ -767,6 +944,7 @@ class ModExporter:
             path_hash_textures=self.build_path_hash_textures() if self.cfg.texture_mode == 'PATH' else [],
             path_complex=self.build_path_complex_data() if (self.cfg.texture_mode == 'PATH' and self.cfg.hash_complex) else None,
             slot_groups=self.build_slot_complex_data() if self.cfg.slot_complex else None,
+            menu_switches=self._menu_switches,
         )
 
         self.ini = ini_maker

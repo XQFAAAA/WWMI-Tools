@@ -9,6 +9,19 @@ Texture1D<float4> IniParams : register(t120);
 #define TINT IniParams[88]
 #define CLIP IniParams[89].xy
 
+// 贴图预览通道模式（由 ListGUI 的通道按钮设置，经 IniParams[90].x 传入）
+// 0 = RGB+Alpha（默认，随 alpha 混合显示透明度）
+// 1 = RGB（不透明）
+// 2 = Alpha（灰度）
+// 3 = R（灰度）
+// 4 = G（灰度）
+// 5 = B（灰度）
+#define CHANNEL IniParams[90].x
+
+// Gamma 校正系数：贴图预览比预期暗，将颜色从线性空间编码回 sRGB 空间使显示更接近原图
+// 若仍偏亮/偏暗，可调整此值（增大变亮，减小变暗）
+#define GAMMA (1.0 / 2.2)
+
 struct vs2ps {
 	float4 pos : SV_Position0;
 	float2 uv : TEXCOORD1;
@@ -85,7 +98,26 @@ void main(
 	color += SampleBilinear(clamp(center + float2( 0.25, -0.25), 0.5, dims.xy - 1.5));
 	color += SampleBilinear(clamp(center + float2(-0.25,  0.25), 0.5, dims.xy - 1.5));
 	color += SampleBilinear(clamp(center + float2( 0.25,  0.25), 0.5, dims.xy - 1.5));
+	color *= 0.25;
 
-	result = color * 0.25 * TINT;
+	// 贴图预览通道模式：由 ListGUI 的通道按钮（rgb_alpha/rgb/alpha/r/g/b）切换，互斥高亮
+	// 各模式均做 gamma 校正；悬停/选中/未选中状态由贴图框 Border 体现，不影响贴图本身颜色
+	float3 display;
+	float out_alpha = 1.0;
+	if (CHANNEL == 1)          // RGB：不透明
+		display = pow(color.rgb, GAMMA);
+	else if (CHANNEL == 2)     // Alpha：灰度
+		display = pow(color.aaa, GAMMA);
+	else if (CHANNEL == 3)     // R：灰度
+		display = pow(color.rrr, GAMMA);
+	else if (CHANNEL == 4)     // G：灰度
+		display = pow(color.ggg, GAMMA);
+	else if (CHANNEL == 5)     // B：灰度
+		display = pow(color.bbb, GAMMA);
+	else {                     // RGB+Alpha（默认）：RGB 随 alpha 混合，显示贴图透明度
+		display = pow(color.rgb, GAMMA);
+		out_alpha = color.a;
+	}
+	result = float4(display, out_alpha);
 }
 #endif

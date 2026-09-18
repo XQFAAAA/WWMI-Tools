@@ -30,6 +30,9 @@ class TempObject:
     index_count: int = 0
     index_offset: int = 0
     material: dict = None
+    # Name of the parent object (only set if the parent is also exported from the
+    # same collection). Used to detect mutual-exclusion parent/child groups for List GUI.
+    parent: str = None
 
 
 @dataclass
@@ -126,6 +129,8 @@ class ObjectMerger:
         
         component_pattern = re.compile(r'.*component[_ -]*(\d+).*')
 
+        # First pass: collect eligible objects (respecting collection/visibility filters)
+        eligible_objects = []
         for obj in get_collection_objects(self.collection, 
                                           recursive = not self.ignore_nested_collections, 
                                           skip_hidden_collections = self.ignore_hidden_collections):
@@ -144,17 +149,31 @@ class ObjectMerger:
             if component_id >= len(self.components):
                 raise ConfigError('object_source_folder', f'Metadata.json in specified folder is missing Component {component_id}!\nMost likely it contains sources for other object.')
 
+            eligible_objects.append((obj, component_id))
+
+        if len(eligible_objects) == 0:
+            raise ValueError(f'No eligible `Component` objects found!')
+
+        # Names of all exported objects, used to detect parent-child relationships
+        # inside the detection collection (parent must itself be exported as well)
+        exported_names = {obj.name for obj, _ in eligible_objects}
+
+        for obj, component_id in eligible_objects:
             temp_obj = copy_object(self.context, obj, name=f'TEMP_{obj.name}', collection=self.collection)
+
+            # Record the parent object's name only if the parent is also being
+            # exported, so parent/child pairs form mutual exclusion groups
+            parent_name = None
+            if obj.parent is not None and obj.parent.name in exported_names:
+                parent_name = obj.parent.name
 
             self.components[component_id].objects.append(TempObject(
                 name=obj.name,
                 object=temp_obj,
+                parent=parent_name,
             ))
 
             num_objects += 1
-
-        if num_objects == 0:
-            raise ValueError(f'No eligible `Component` objects found!')
         
         for component in self.components:
             component.objects.sort(key=lambda x: x.name)

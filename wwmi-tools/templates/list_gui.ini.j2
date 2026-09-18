@@ -1,6 +1,9 @@
 namespace = {{ namespace }}
 
 {% set button_count = list_gui_objects | length %}
+{% set switch_count = menu_switches | length if menu_switches else 0 %}
+{% set total_buttons = button_count + switch_count %}
+{% set switch_max_pool = (menu_switches | map(attribute='pool_size') | max) if menu_switches else 0 %}
 [Constants]
 
 global $menu
@@ -59,7 +62,146 @@ global $Button_height = {{ button_height }}
 
 global $UI_Gap = 0.0045
 
-global $Button_amount = {{ button_count }}
+global $Button_amount = {{ total_buttons }}
+
+; 左侧功能图标（Reload / Save / State1-3）
+global $Icon_x_size = 0
+global $Icon_y_size = 0
+global $Icon_x = 0
+global $Icon_y = 0
+global $Icon_start_y = 0
+global $Icon_column_height = 0
+global $Icon_amount = 5
+; 侧边按钮（图标栏/通道按钮）的基准高度像素，可调小以缩小侧边按钮
+global $Icon_height = 64
+global $Icon_gap_x = 0.006
+global $Icon_gap_y = 0.006
+global $Icon_number = 0
+global $Icon_is_hover = 0
+
+; 当前选中的状态槽（1/2/3=对应 State，互斥高亮），初始化默认高亮 State1
+global $selected_state = 1
+
+; 图标按下延迟触发
+global $is_icon_pressed = 0
+global $icon_press_x = 0
+global $icon_press_y = 0
+global $icon_pressed_number = 0
+
+{% if menu_switches %}
+; 菜单切换节点（有几个切换节点就有几个列表项与对应 pool）
+global $Switch_amount = {{ switch_count }}
+; 当前激活显示的菜单切换列表项（0=无，1/2/...=对应切换节点），互斥
+global $active_switch = 0
+
+; 各菜单切换节点的贴图数量（即对应 pool 大小）
+{%- for sw in menu_switches %}
+global $Switch{{ loop.index0 }}_pool_size = {{ sw.pool_size }}
+{%- endfor %}
+
+; 左侧贴图框（竖向排列，宽为固定归一化数值，高=宽）
+global $TexFrame_x_size = 0
+global $TexFrame_y_size = 0
+global $TexFrame_x = 0
+global $TexFrame_y = 0
+global $TexFrame_start_y = 0
+global $TexFrame_gap = 0.006
+global $TexFrame_number = 0
+global $TexFrame_index = 0
+global $TexFrame_max_amount = {{ switch_max_pool }}
+global $TexFrame_is_hover = 0
+; 贴图框 Border：正方形资源描边占图宽比例（8px/480px=1/60），描边从框边界向内绘制，贴图内缩一个描边宽使其被描边包裹
+global $TexFrame_stroke = 0.0166667
+
+; 贴图框按下延迟触发
+global $is_texframe_pressed = 0
+global $texframe_press_x = 0
+global $texframe_press_y = 0
+global $texframe_pressed_number = 0
+
+; 贴图列滚动（独立于列表项，竖向显示范围与列表项一致）
+global $TexFrame_scroll_offset = 0
+global $is_texframe_scrolling = 0
+global $texframe_scroll_start_y = 0
+global $TexFrame_total_height = 0
+global $mouse_press_in_texframes = 0
+
+; 各切换节点当前选中的贴图索引（即对应 pool 的索引，持久化）
+{%- for sw in menu_switches %}
+global persist $textures_{{ sw.identifier | lower }}_index = 0
+{%- endfor %}
+
+; 贴图预览通道模式按钮（仅贴图列出现时显示，互斥高亮）
+; 0=RGB+Alpha 1=RGB 2=Alpha 3=R 4=G 5=B
+global persist $texture_channel = 0
+global $Channel_amount = 6
+global $Channel_x_size = 0
+global $Channel_y_size = 0
+global $Channel_x = 0
+global $Channel_y = 0
+global $Channel_start_y = 0
+global $Channel_gap_x = 0.006
+global $Channel_gap_y = 0.006
+global $ChannelButton_number = 0
+global $ChannelButton_is_hover = 0
+
+; 通道按钮按下延迟触发
+global $is_channel_pressed = 0
+global $channel_press_x = 0
+global $channel_press_y = 0
+global $channel_pressed_number = 0
+{% endif %}
+
+run = CommandListInitPool
+
+[CommandListInitPool]
+{%- for pool_idx in range(4) %}
+{%- for obj in list_gui_objects %}
+$PoolMeshState{{ pool_idx }}[{{ loop.index0 }}] = {{ obj.draw_var }}
+{%- endfor %}
+{%- for sw in menu_switches %}
+$PoolMeshState{{ pool_idx }}[{{ button_count + loop.index0 }}] = $textures_{{ sw.identifier | lower }}_index
+{%- endfor %}
+{%- endfor %}
+
+{%- for sw in menu_switches %}
+{%- for input in sw.inputs %}
+PoolTextures{{ sw.identifier }}[{{ loop.index0 }}] = ref ResourceTexture{{ input }}
+{%- endfor %}
+{%- endfor %}
+{% if menu_switches %}
+; 按持久化的索引重新指向切换资源（mod.ini 默认只指向第一个连接）
+{%- for sw in menu_switches %}
+ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
+{%- endfor %}
+{% endif %}
+
+[PoolMeshState0]
+pool_size = {{ total_buttons }}
+pool_index_type = ring
+pool_persist_variables = 1
+
+[PoolMeshState1]
+pool_size = {{ total_buttons }}
+pool_index_type = ring
+pool_persist_variables = 1
+
+[PoolMeshState2]
+pool_size = {{ total_buttons }}
+pool_index_type = ring
+pool_persist_variables = 1
+
+[PoolMeshState3]
+pool_size = {{ total_buttons }}
+pool_index_type = ring
+pool_persist_variables = 1
+
+{% for sw in menu_switches %}
+[PoolTextures{{ sw.identifier }}]
+pool_size = {{ sw.pool_size }}
+pool_index_type = ring
+
+{% endfor %}
 
 [KeyToggleUI]
 condition = $object_detected
@@ -106,8 +248,38 @@ if $menu && $object_detected
 {%- for obj in list_gui_objects %}
     run = CommandListAddButton
 {%- endfor %}
+{%- for sw in menu_switches %}
+    run = CommandListAddButton
+{%- endfor %}
     $Button_number = 0
-    
+
+    ; 左侧功能图标栏
+    run = CommandListAddIcon
+    run = CommandListAddIcon
+    run = CommandListAddIcon
+    run = CommandListAddIcon
+    run = CommandListAddIcon
+    $Icon_number = 0
+
+{% if menu_switches %}
+    ; 菜单切换贴图列（仅激活的切换节点显示）
+{% for _ in range(switch_max_pool) %}
+    run = CommandListAddTexFrame
+{% endfor %}
+    $TexFrame_number = 0
+
+    ; 贴图预览通道模式按钮（仅贴图列出现时显示，互斥高亮）
+    if $active_switch != 0
+        run = CommandListAddChannelButton
+        run = CommandListAddChannelButton
+        run = CommandListAddChannelButton
+        run = CommandListAddChannelButton
+        run = CommandListAddChannelButton
+        run = CommandListAddChannelButton
+        $ChannelButton_number = 0
+    endif
+{% endif %}
+
     run = CommandListCheckMouse
 endif
 
@@ -154,6 +326,39 @@ if $final_x_off == -1
     $final_x_off = 0.5 - $UI_x_size / 2
 endif
 
+; 左侧图标栏布局（贴合面板左缘，起始高度与通道按钮/贴图列一致）
+$Icon_x_size = $Element_x_size * ($Icon_height / $Element_width)
+$Icon_y_size = $Icon_x_size * (res_width / res_height)
+$Icon_column_height = $Icon_amount * $Icon_y_size + ($Icon_amount - 1) * $Icon_gap_y
+$Icon_start_y = $list_top_y + $UI_Gap * (res_width / res_height)
+$Icon_x = $final_x_off - $Icon_gap_x - $Icon_x_size
+
+; 贴图框布局（宽为固定归一化数值 0.125，高=宽，竖向排列于图标栏左侧）
+$TexFrame_x_size = 0.125
+$TexFrame_y_size = $TexFrame_x_size * (res_width / res_height)
+; 起始位置预留与按钮列表项相同的上下边距，避免最上/最下贴图贴住显示边
+$TexFrame_start_y = $list_top_y + $UI_Gap * (res_width / res_height)
+$TexFrame_x = $Icon_x - $TexFrame_gap - $TexFrame_x_size
+
+; 贴图列总高度（竖向排列，支持拖动滚动，显示范围与列表项一致）
+$TexFrame_total_height = ($TexFrame_y_size + $TexFrame_gap * (res_width / res_height)) * $TexFrame_max_amount + $TexFrame_gap * (res_width / res_height)
+if $TexFrame_scroll_offset < 0
+    $TexFrame_scroll_offset = 0
+endif
+if $TexFrame_total_height > $list_viewport_y_size
+    if $TexFrame_scroll_offset > $TexFrame_total_height - $list_viewport_y_size
+        $TexFrame_scroll_offset = $TexFrame_total_height - $list_viewport_y_size
+    endif
+else
+    $TexFrame_scroll_offset = 0
+endif
+
+; 通道按钮列（位于贴图列左侧，尺寸同左侧图标，竖向排列）
+$Channel_x_size = $Icon_x_size
+$Channel_y_size = $Icon_y_size
+$Channel_start_y = $TexFrame_start_y
+$Channel_x = $TexFrame_x - $Channel_gap_x - $Channel_x_size
+
 [CommandListSetButtonCondition]
 {%- for obj in list_gui_objects %}
 {%- set btn_num = loop.index %}
@@ -163,6 +368,21 @@ if $Button_number == {{ btn_num }}
 else if $Button_number == {{ btn_num }}
 {%- endif %}
     {{ obj.draw_var }} = 1 - {{ obj.draw_var }}
+{%- for other in obj.exclusive_others %}
+    {{ other }} = 0
+{%- endfor %}
+{%- endfor %}
+{%- for sw in menu_switches %}
+{%- set btn_num = button_count + loop.index %}
+{%- set sw_num = loop.index %}
+else if $Button_number == {{ btn_num }}
+    ; {{ sw.display_name }} 列表项：激活/关闭贴图列（互斥）
+    if $active_switch == {{ sw_num }}
+        $active_switch = 0
+    else
+        $active_switch = {{ sw_num }}
+        $TexFrame_scroll_offset = 0
+    endif
 {%- endfor %}
 endif
 
@@ -180,6 +400,14 @@ else if $Button_number == {{ btn_num }}
         $Button_active = 1
     endif
 {%- endfor %}
+{%- for sw in menu_switches %}
+{%- set btn_num = button_count + loop.index %}
+{%- set sw_num = loop.index %}
+else if $Button_number == {{ btn_num }}
+    if $active_switch == {{ sw_num }}
+        $Button_active = 1
+    endif
+{%- endfor %}
 endif
 
 [CommandListSetButtonIcon]
@@ -190,6 +418,11 @@ if $Button_number == {{ btn_num }}
 {%- else %}
 else if $Button_number == {{ btn_num }}
 {%- endif %}
+    ps-t100 = ResourceButton_Icon{{ btn_num }}
+{%- endfor %}
+{%- for sw in menu_switches %}
+{%- set btn_num = button_count + loop.index %}
+else if $Button_number == {{ btn_num }}
     ps-t100 = ResourceButton_Icon{{ btn_num }}
 {%- endfor %}
 endif
@@ -232,6 +465,12 @@ if $mouse_clicked
             $mouse_press_in_list = 1
         endif
     endif
+    ; 贴图列区域按下（用于拖动滚动）
+    if cursor_x > $TexFrame_x && cursor_x < $TexFrame_x + $TexFrame_x_size
+        if cursor_y > $list_top_y && cursor_y < $list_bottom_y
+            $mouse_press_in_texframes = 1
+        endif
+    endif
 endif
 ; Reset click event
 $mouse_clicked = 0
@@ -240,6 +479,8 @@ if !$mouse_hold
     $mouse_press_in_header = 0
     $mouse_press_in_list = 0
     $is_scrolling = 0
+    $mouse_press_in_texframes = 0
+    $is_texframe_scrolling = 0
 endif
 
 ; 按钮按下延迟触发：按住不动→等待，移动→滚动，释放→触发
@@ -257,6 +498,50 @@ if $is_button_pressed
         $Button_number = 0
         $is_button_pressed = 0
     endif
+else if $is_icon_pressed
+    ; 图标按下延迟触发：按住不动→释放时触发，移动→取消
+    if $mouse_hold
+        if cursor_x != $icon_press_x || cursor_y != $icon_press_y
+            $is_icon_pressed = 0
+        endif
+    else
+        $Icon_number = $icon_pressed_number
+        run = CommandListIconAction
+        $Icon_number = 0
+        $is_icon_pressed = 0
+    endif
+else if $is_channel_pressed
+    ; 通道按钮按下延迟触发：按住不动→释放时切换通道，移动→取消
+    if $mouse_hold
+        if cursor_x != $channel_press_x || cursor_y != $channel_press_y
+            $is_channel_pressed = 0
+        endif
+    else
+        $ChannelButton_number = $channel_pressed_number
+        run = CommandListChannelButtonAction
+        $ChannelButton_number = 0
+        $is_channel_pressed = 0
+    endif
+else if $is_texframe_pressed
+    ; 贴图框按下：按住不动→释放时选中贴图，移动→滚动贴图列
+    if $mouse_hold
+        if cursor_x != $texframe_press_x || cursor_y != $texframe_press_y
+            $is_texframe_pressed = 0
+            $is_texframe_scrolling = 1
+            $texframe_scroll_start_y = cursor_y
+        endif
+    else
+        $TexFrame_number = $texframe_pressed_number
+        run = CommandListTexFrameAction
+        $TexFrame_number = 0
+        $is_texframe_pressed = 0
+    endif
+else if $is_texframe_scrolling
+    if $mouse_hold
+        run = CommandListTexFrameScroll
+    else
+        $is_texframe_scrolling = 0
+    endif
 else if $is_dragging == 1
     if $mouse_hold
         run = CommandListMoveUIElement
@@ -271,6 +556,13 @@ else if $mouse_press_in_header
         $is_scrolling = 0
     else
         $is_dragging = 0
+    endif
+else if $mouse_press_in_texframes
+    ; 贴图列区域拖动滚动
+    if $mouse_hold
+        run = CommandListTexFrameScroll
+    else
+        $is_texframe_scrolling = 0
     endif
 else if $mouse_press_in_list
     ; 列表区域滚动
@@ -388,6 +680,397 @@ else
     $scroll_start_y = cursor_y
 endif
 
+[CommandListAddTexFrame]
+$TexFrame_number = $TexFrame_number + 1
+$TexFrame_index = $TexFrame_number - 1
+if $TexFrame_number <= $TexFrame_max_amount
+    $TexFrame_y = $TexFrame_start_y + ($TexFrame_y_size + $TexFrame_gap * (res_width / res_height)) * $TexFrame_index - $TexFrame_scroll_offset
+    if $TexFrame_y + $TexFrame_y_size > $list_top_y + $UI_Gap && $TexFrame_y < $list_bottom_y - $UI_Gap
+{%- if menu_switches %}
+{%- for sw in menu_switches %}
+{%- set sw_num = loop.index %}
+{%- if sw_num == 1 %}
+        if $active_switch == {{ sw_num }}
+{%- else %}
+        else if $active_switch == {{ sw_num }}
+{%- endif %}
+            if $TexFrame_number <= $Switch{{ loop.index0 }}_pool_size
+                run = CommandListCheckTexFrameHover
+                run = CommandListDrawTexFrame
+            endif
+{%- endfor %}
+        endif
+{%- endif %}
+    endif
+endif
+
+[CommandListCheckTexFrameHover]
+$TexFrame_is_hover = 0
+if cursor_x > $TexFrame_x && cursor_x < $TexFrame_x + $TexFrame_x_size
+    if cursor_y > $TexFrame_y && cursor_y < $TexFrame_y + $TexFrame_y_size
+        $TexFrame_is_hover = 1
+        if $mouse_clicked && !$is_texframe_pressed && !$is_button_pressed && !$is_icon_pressed && !$is_scrolling && !$is_texframe_scrolling
+            $is_texframe_pressed = 1
+            $texframe_press_x = cursor_x
+            $texframe_press_y = cursor_y
+            $texframe_pressed_number = $TexFrame_number
+        endif
+    endif
+endif
+
+[CommandListDrawTexFrame]
+; 裁剪区域：与列表项相同的竖向显示范围
+x89 = $list_top_y + $UI_Gap
+y89 = $list_bottom_y - $UI_Gap
+
+; 1. 贴图（内缩一个描边宽：描边从框边界向内绘制，内缩后描边刚好包裹在贴图外围而非压在贴图内部；使用专用着色器，颜色随通道模式显示）
+x87 = $TexFrame_x_size * (1 - 2 * $TexFrame_stroke)
+y87 = $TexFrame_y_size * (1 - 2 * $TexFrame_stroke)
+z87 = $TexFrame_x + $TexFrame_x_size * $TexFrame_stroke
+w87 = $TexFrame_y + $TexFrame_y_size * $TexFrame_stroke
+x90 = $texture_channel
+{%- if menu_switches %}
+{%- for sw in menu_switches %}
+{%- set sw_num = loop.index %}
+{%- if sw_num == 1 %}
+if $active_switch == {{ sw_num }}
+{%- else %}
+else if $active_switch == {{ sw_num }}
+{%- endif %}
+    ps-t100 = ref PoolTextures{{ sw.identifier }}[$TexFrame_index]
+{%- endfor %}
+endif
+{%- endif %}
+run = CustomShaderElementTexture
+
+; 2. 贴图框 Border（画在框边界，描边自然落在内缩贴图的外围；独立正方形资源，无圆角；悬停/选中/未选中效果同列表项）
+x87 = $TexFrame_x_size
+y87 = $TexFrame_y_size
+z87 = $TexFrame_x
+w87 = $TexFrame_y
+run = CommandListSetTexFrameTint
+ps-t100 = ResourceTexFrameBorder
+run = CustomShaderElement
+
+[CommandListSetTexFrameTint]
+if $TexFrame_is_hover
+    x88 = 1
+    y88 = 1
+    z88 = 1
+    w88 = 1
+{%- if menu_switches %}
+{%- for sw in menu_switches %}
+{%- set sw_num = loop.index %}
+else if $active_switch == {{ sw_num }} && $textures_{{ sw.identifier | lower }}_index == $TexFrame_index
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+{%- endfor %}
+{%- endif %}
+else
+    x88 = 0.6745
+    y88 = 0.7294
+    z88 = 0.7333
+    w88 = 1
+endif
+
+[CommandListTexFrameAction]
+{%- if menu_switches %}
+{%- for sw in menu_switches %}
+{%- set sw_num = loop.index %}
+{%- if sw_num == 1 %}
+if $active_switch == {{ sw_num }}
+{%- else %}
+else if $active_switch == {{ sw_num }}
+{%- endif %}
+    if $TexFrame_number <= $Switch{{ loop.index0 }}_pool_size
+        $textures_{{ sw.identifier | lower }}_index = $TexFrame_number - 1
+        ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
+    endif
+{%- endfor %}
+endif
+{%- endif %}
+
+[CommandListTexFrameScroll]
+if $is_texframe_scrolling == 0
+    $texframe_scroll_start_y = cursor_y
+    $is_texframe_scrolling = 1
+else
+    $TexFrame_scroll_offset = $TexFrame_scroll_offset + $texframe_scroll_start_y - cursor_y
+    $texframe_scroll_start_y = cursor_y
+endif
+
+[CommandListAddChannelButton]
+$ChannelButton_number = $ChannelButton_number + 1
+if $ChannelButton_number <= $Channel_amount
+    $Channel_y = $Channel_start_y + ($Channel_y_size + $Channel_gap_y) * ($ChannelButton_number - 1)
+    run = CommandListCheckChannelButtonHover
+    run = CommandListDrawChannelButton
+endif
+
+[CommandListCheckChannelButtonHover]
+$ChannelButton_is_hover = 0
+if cursor_x > $Channel_x && cursor_x < $Channel_x + $Channel_x_size
+    if cursor_y > $Channel_y && cursor_y < $Channel_y + $Channel_y_size
+        $ChannelButton_is_hover = 1
+        if $mouse_clicked && !$is_channel_pressed && !$is_button_pressed && !$is_icon_pressed && !$is_texframe_pressed && !$is_scrolling
+            $is_channel_pressed = 1
+            $channel_press_x = cursor_x
+            $channel_press_y = cursor_y
+            $channel_pressed_number = $ChannelButton_number
+        endif
+    endif
+endif
+
+[CommandListDrawChannelButton]
+; 裁剪区域恢复全屏（按钮绘制时改过）
+x89 = 0
+y89 = 1
+
+x87 = $Channel_x_size
+y87 = $Channel_y_size
+z87 = $Channel_x
+w87 = $Channel_y
+
+run = CommandListSetChannelButtonTint
+run = CommandListSetChannelButtonTexture
+run = CustomShaderElement
+
+[CommandListSetChannelButtonTint]
+if $ChannelButton_is_hover
+    x88 = 1
+    y88 = 1
+    z88 = 1
+    w88 = 1
+else if $ChannelButton_number == 1 && $texture_channel == 0
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $ChannelButton_number == 2 && $texture_channel == 1
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $ChannelButton_number == 3 && $texture_channel == 2
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $ChannelButton_number == 4 && $texture_channel == 3
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $ChannelButton_number == 5 && $texture_channel == 4
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $ChannelButton_number == 6 && $texture_channel == 5
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else
+    x88 = 0.6745
+    y88 = 0.7294
+    z88 = 0.7333
+    w88 = 1
+endif
+
+[CommandListSetChannelButtonTexture]
+if $ChannelButton_number == 1
+    ps-t100 = ResourceChannelRGBAlpha
+else if $ChannelButton_number == 2
+    ps-t100 = ResourceChannelRGB
+else if $ChannelButton_number == 3
+    ps-t100 = ResourceChannelAlpha
+else if $ChannelButton_number == 4
+    ps-t100 = ResourceChannelR
+else if $ChannelButton_number == 5
+    ps-t100 = ResourceChannelG
+else if $ChannelButton_number == 6
+    ps-t100 = ResourceChannelB
+endif
+
+[CommandListChannelButtonAction]
+if $ChannelButton_number == 1
+    $texture_channel = 0
+else if $ChannelButton_number == 2
+    $texture_channel = 1
+else if $ChannelButton_number == 3
+    $texture_channel = 2
+else if $ChannelButton_number == 4
+    $texture_channel = 3
+else if $ChannelButton_number == 5
+    $texture_channel = 4
+else if $ChannelButton_number == 6
+    $texture_channel = 5
+endif
+
+[CommandListAddIcon]
+$Icon_number = $Icon_number + 1
+if $Icon_number <= $Icon_amount
+    $Icon_y = $Icon_start_y + ($Icon_y_size + $Icon_gap_y) * ($Icon_number - 1)
+    run = CommandListCheckIconHover
+    run = CommandListDrawIcon
+endif
+
+[CommandListCheckIconHover]
+$Icon_is_hover = 0
+if cursor_x > $Icon_x && cursor_x < $Icon_x + $Icon_x_size
+    if cursor_y > $Icon_y && cursor_y < $Icon_y + $Icon_y_size
+        $Icon_is_hover = 1
+        if $mouse_clicked && !$is_icon_pressed && !$is_button_pressed && !$is_scrolling
+            $is_icon_pressed = 1
+            $icon_press_x = cursor_x
+            $icon_press_y = cursor_y
+            $icon_pressed_number = $Icon_number
+        endif
+    endif
+endif
+
+[CommandListDrawIcon]
+; 裁剪区域恢复全屏（按钮绘制时改过）
+x89 = 0
+y89 = 1
+
+x87 = $Icon_x_size
+y87 = $Icon_y_size
+z87 = $Icon_x
+w87 = $Icon_y
+
+run = CommandListSetIconTint
+run = CommandListSetIconTexture
+run = CustomShaderElement
+
+[CommandListSetIconTint]
+if $Icon_is_hover
+    x88 = 1
+    y88 = 1
+    z88 = 1
+    w88 = 1
+else if $Icon_number == 3 && $selected_state == 1
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $Icon_number == 4 && $selected_state == 2
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else if $Icon_number == 5 && $selected_state == 3
+    x88 = 0.882
+    y88 = 0.843
+    z88 = 0.6
+    w88 = 1
+else
+    x88 = 0.6745
+    y88 = 0.7294
+    z88 = 0.7333
+    w88 = 1
+endif
+
+[CommandListSetIconTexture]
+if $Icon_number == 1
+    ps-t100 = ResourceReload
+else if $Icon_number == 2
+    ps-t100 = ResourceSave
+else if $Icon_number == 3
+    ps-t100 = ResourceState1
+else if $Icon_number == 4
+    ps-t100 = ResourceState2
+else if $Icon_number == 5
+    ps-t100 = ResourceState3
+endif
+
+[CommandListIconAction]
+if $Icon_number == 1
+    ; Reload：用 PoolMeshState0（加载时快照）恢复 draw 变量，不改变当前高亮状态
+    run = CommandListApplyState0
+else if $Icon_number == 2
+    ; Save：把当前 draw 变量记录到选中的状态槽
+    if $selected_state == 1
+        run = CommandListSaveState1
+    else if $selected_state == 2
+        run = CommandListSaveState2
+    else if $selected_state == 3
+        run = CommandListSaveState3
+    endif
+else if $Icon_number == 3
+    $selected_state = 1
+    run = CommandListApplyState1
+else if $Icon_number == 4
+    $selected_state = 2
+    run = CommandListApplyState2
+else if $Icon_number == 5
+    $selected_state = 3
+    run = CommandListApplyState3
+endif
+
+[CommandListApplyState0]
+{%- for obj in list_gui_objects %}
+{{ obj.draw_var }} = $PoolMeshState0[{{ loop.index0 }}]
+{%- endfor %}
+{%- for sw in menu_switches %}
+$textures_{{ sw.identifier | lower }}_index = $PoolMeshState0[{{ button_count + loop.index0 }}]
+ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
+{%- endfor %}
+
+[CommandListApplyState1]
+{%- for obj in list_gui_objects %}
+{{ obj.draw_var }} = $PoolMeshState1[{{ loop.index0 }}]
+{%- endfor %}
+{%- for sw in menu_switches %}
+$textures_{{ sw.identifier | lower }}_index = $PoolMeshState1[{{ button_count + loop.index0 }}]
+ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
+{%- endfor %}
+
+[CommandListApplyState2]
+{%- for obj in list_gui_objects %}
+{{ obj.draw_var }} = $PoolMeshState2[{{ loop.index0 }}]
+{%- endfor %}
+{%- for sw in menu_switches %}
+$textures_{{ sw.identifier | lower }}_index = $PoolMeshState2[{{ button_count + loop.index0 }}]
+ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
+{%- endfor %}
+
+[CommandListApplyState3]
+{%- for obj in list_gui_objects %}
+{{ obj.draw_var }} = $PoolMeshState3[{{ loop.index0 }}]
+{%- endfor %}
+{%- for sw in menu_switches %}
+$textures_{{ sw.identifier | lower }}_index = $PoolMeshState3[{{ button_count + loop.index0 }}]
+ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
+{%- endfor %}
+
+[CommandListSaveState1]
+{%- for obj in list_gui_objects %}
+$PoolMeshState1[{{ loop.index0 }}] = {{ obj.draw_var }}
+{%- endfor %}
+{%- for sw in menu_switches %}
+$PoolMeshState1[{{ button_count + loop.index0 }}] = $textures_{{ sw.identifier | lower }}_index
+{%- endfor %}
+
+[CommandListSaveState2]
+{%- for obj in list_gui_objects %}
+$PoolMeshState2[{{ loop.index0 }}] = {{ obj.draw_var }}
+{%- endfor %}
+{%- for sw in menu_switches %}
+$PoolMeshState2[{{ button_count + loop.index0 }}] = $textures_{{ sw.identifier | lower }}_index
+{%- endfor %}
+
+[CommandListSaveState3]
+{%- for obj in list_gui_objects %}
+$PoolMeshState3[{{ loop.index0 }}] = {{ obj.draw_var }}
+{%- endfor %}
+{%- for sw in menu_switches %}
+$PoolMeshState3[{{ button_count + loop.index0 }}] = $textures_{{ sw.identifier | lower }}_index
+{%- endfor %}
+
 [CustomShaderElement]
 hs = null
 ds = null
@@ -396,6 +1079,20 @@ cs = null
 run = BuiltInCommandListUnbindAllRenderTargets
 vs = res/draw_2d.hlsl
 ps = res/draw_2d.hlsl
+blend = ADD SRC_ALPHA INV_SRC_ALPHA
+cull = none
+topology = triangle_strip
+o0 = set_viewport bb
+Draw = 4,0
+
+[CustomShaderElementTexture]
+hs = null
+ds = null
+gs = null
+cs = null
+run = BuiltInCommandListUnbindAllRenderTargets
+vs = res/draw_2d_textures.hlsl
+ps = res/draw_2d_textures.hlsl
 blend = ADD SRC_ALPHA INV_SRC_ALPHA
 cull = none
 topology = triangle_strip
@@ -417,7 +1114,47 @@ filename = res/ButtonBorder.png
 [ResourceButtonBg]
 filename = res/ButtonBg.png
 
+[ResourceTexFrameBorder]
+filename = res/TexFrameBorder.png
+
+[ResourceChannelRGBAlpha]
+filename = res/ChannelRGBAlpha.png
+
+[ResourceChannelRGB]
+filename = res/ChannelRGB.png
+
+[ResourceChannelAlpha]
+filename = res/ChannelAlpha.png
+
+[ResourceChannelR]
+filename = res/ChannelR.png
+
+[ResourceChannelG]
+filename = res/ChannelG.png
+
+[ResourceChannelB]
+filename = res/ChannelB.png
+
 {%- for obj in list_gui_objects %}
 [ResourceButton_Icon{{ loop.index }}]
 filename = res/{{ obj.draw_var | replace('$', '') }}.png
 {%- endfor %}
+{%- for sw in menu_switches %}
+[ResourceButton_Icon{{ button_count + loop.index }}]
+filename = res/{{ sw.identifier }}.png
+{%- endfor %}
+
+[ResourceReload]
+filename = res/Reload.png
+
+[ResourceSave]
+filename = res/Save.png
+
+[ResourceState1]
+filename = res/State1.png
+
+[ResourceState2]
+filename = res/State2.png
+
+[ResourceState3]
+filename = res/State3.png
