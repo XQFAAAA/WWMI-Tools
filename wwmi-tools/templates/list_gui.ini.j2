@@ -26,6 +26,12 @@ global $Button_number = 0
 global $Button_x = 0
 global $Button_y = 0
 
+; 按钮可见性：$PoolButtonDisplay[0..N-1] 依次对应按钮 1..N（1=显示 0=隐藏）
+; 在 CommandListInitPool 中配置，隐藏的按钮不占位，其余按钮上移补位
+global $Button_display = 1
+global $Button_visible_amount = 0
+global $Button_visible_index = 0
+
 global $UI_x_size = 0
 global $UI_y_size = 0
 
@@ -161,6 +167,18 @@ global $channel_pressed_number = 0
 run = CommandListInitPool
 
 [CommandListInitPool]
+; 按钮显示开关：默认全部为 1，隐藏某个按钮时手动把对应项改成 0
+; 为 0 的按钮不绘制、不占位，其余按钮上移补位
+{%- for i in range(total_buttons) %}
+$PoolButtonDisplay[{{ i }}] = 1
+{%- endfor %}
+{% if total_buttons %}
+$Button_visible_amount = {% for i in range(total_buttons) %}{% if not loop.first %} + {% endif %}$PoolButtonDisplay[{{ i }}]{% endfor %}
+{%- else %}
+$Button_visible_amount = 0
+{%- endif %}
+$Button_visible_index = 0
+
 {%- for pool_idx in range(4) %}
 {%- for obj in list_gui_objects %}
 $PoolMeshState{{ pool_idx }}[{{ loop.index0 }}] = {{ obj.draw_var }}
@@ -181,6 +199,10 @@ PoolTextures{{ sw.identifier }}[{{ loop.index0 }}] = ref ResourceTexture{{ input
 ResourceTexture{{ sw.identifier }} = ref PoolTextures{{ sw.identifier }}[$textures_{{ sw.identifier | lower }}_index]
 {%- endfor %}
 {% endif %}
+
+[PoolButtonDisplay]
+pool_size = {{ total_buttons }}
+pool_index_type = ring
 
 [PoolMeshState0]
 pool_size = {{ total_buttons }}
@@ -261,6 +283,7 @@ if $menu && $object_detected
     run = CommandListAddButton
 {%- endfor %}
     $Button_number = 0
+    $Button_visible_index = 0
 
     ; 左侧功能图标栏
     run = CommandListAddIcon
@@ -311,8 +334,8 @@ $UI_x_size = $Element_x_size
 ; 不能直接用屏幕像素除以分辨率，否则分辨率越高行高越大而视口不变，可见行数会变少
 $list_viewport_y_size = $Element_x_size * (res_width / res_height) * ($list_viewport_height / $Element_width)
 
-; 整个按钮列表的总高度（归一化）
-$total_list_y_size = ($Button_y_size + $UI_Gap * res_width / res_height) * $Button_amount + $UI_Gap * res_width / res_height
+; 整个按钮列表的总高度（归一化，只统计可见按钮）
+$total_list_y_size = ($Button_y_size + $UI_Gap * res_width / res_height) * $Button_visible_amount + $UI_Gap * res_width / res_height
 
 ; UI 高度 = 头部 + 视口 + Mod Link 行 + 尾部（Author Name，最底部）
 $UI_y_size = $Hearder_y_size + $list_viewport_y_size + $FooterLink_y_size + $Footer_y_size
@@ -441,14 +464,18 @@ endif
 [CommandListAddButton]
 $Button_number = $Button_number + 1
 if $Button_number <= $Button_amount
-    run = CommandListButtonPosition
-    run = CommandListCheckButtonHover
-    run = CommandListDrawButton
+    $Button_display = $PoolButtonDisplay[$Button_number - 1]
+    if $Button_display
+        $Button_visible_index = $Button_visible_index + 1
+        run = CommandListButtonPosition
+        run = CommandListCheckButtonHover
+        run = CommandListDrawButton
+    endif
 endif
 
 [CommandListButtonPosition]
 $Button_x = $final_x_off
-$Button_y = $final_y_off + $Hearder_y_size + ($Button_y_size + $UI_Gap * res_width / res_height) * ($Button_number - 1) + $UI_Gap * res_width / res_height - $scroll_offset
+$Button_y = $final_y_off + $Hearder_y_size + ($Button_y_size + $UI_Gap * res_width / res_height) * ($Button_visible_index - 1) + $UI_Gap * res_width / res_height - $scroll_offset
 
 [CommandListCheckButtonHover]
 $Button_is_hover = 0

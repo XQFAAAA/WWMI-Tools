@@ -263,12 +263,11 @@ class IniMaker:
         # Map of mutual-exclusion groups (object name -> other object names in the same group)
         exclusion_groups = self._build_mutual_exclusion_groups()
 
-        # Collect all objects for ListGUI buttons (skip empty meshes with <= 4 vertices
-        # and objects hidden in viewport)
+        # Collect all objects for ListGUI buttons (skip empty meshes with <= 4 vertices)
         list_gui_objects = []
         for component in self.merged_object.components:
             for obj in component.objects:
-                if obj.vertex_count <= 4 or obj.hidden:
+                if obj.vertex_count <= 4:
                     continue
                 list_gui_objects.append({
                     'name': obj.name,
@@ -488,7 +487,7 @@ class IniMaker:
         # Button text images (one per object) - fixed size, transparent bg, no border
         for component in self.merged_object.components:
             for obj in component.objects:
-                if obj.vertex_count <= 4 or obj.hidden:
+                if obj.vertex_count <= 4:
                     continue
                 icon_name = self.formatter.format_ini_drawvar(obj.name).replace('$', '')
                 display_name = strip_component_prefix(obj.name)
