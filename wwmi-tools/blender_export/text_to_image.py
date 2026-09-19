@@ -1,3 +1,6 @@
+import os
+
+from pathlib import Path
 from typing import Tuple, List
 
 try:
@@ -48,6 +51,9 @@ def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[
 
 class Text2Image:
 
+    # Fonts shipped with the addon, used to resolve bare font file names
+    BUNDLED_FONT_DIR = Path(os.path.realpath(__file__)).parent.parent / 'templates'
+
     def __init__(
         self,
         font_path: str = "msyh.ttc",
@@ -68,12 +74,32 @@ class Text2Image:
         self.border_color = border_color
         self.bg_color = bg_color
 
+    def _resolve_font_path(self) -> str:
+        """Resolve font file to an existing path.
+
+        A bare file name (e.g. 'H7GBK-Heavy.ttf') is resolved against the fonts
+        bundled with the addon, because Pillow only searches the OS font folders
+        for bare names - the font would otherwise be missing on machines where it
+        is not installed."""
+        if os.path.isabs(self.font_path):
+            return self.font_path
+        bundled = self.BUNDLED_FONT_DIR / self.font_path
+        if bundled.is_file():
+            return str(bundled)
+        return self.font_path
+
     def _load_font(self) -> ImageFont.FreeTypeFont:
+        font_path = self._resolve_font_path()
         try:
-            return ImageFont.truetype(self.font_path, self.font_size)
+            return ImageFont.truetype(font_path, self.font_size)
         except IOError:
-            print(f"Font file not found: {self.font_path}, fallback to default.")
-            return ImageFont.load_default()
+            print(f"Font file not found: {font_path}, fallback to default.")
+            try:
+                # Pillow >= 10.1 supports a size for the built-in font, without it
+                # the fallback is a tiny bitmap font that does not fit the images
+                return ImageFont.load_default(size=self.font_size)
+            except TypeError:
+                return ImageFont.load_default()
 
     def generate(self, text: str, output_path: str) -> None:
         font = self._load_font()
