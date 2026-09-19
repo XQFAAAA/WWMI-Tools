@@ -245,6 +245,7 @@ class ObjectMergerWWMI(ObjectMerger):
                             name=sibling_name,
                             object=sibling,
                             parent=temp_object.parent,
+                            hidden=temp_object.hidden,
                         ))
             component.objects = new_temp_objects
 

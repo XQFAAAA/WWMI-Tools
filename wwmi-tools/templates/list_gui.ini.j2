@@ -39,7 +39,9 @@ global $button_pressed_number = 0
 global $scroll_offset = 0
 global $is_scrolling = 0
 global $scroll_start_y = 0
-global $list_viewport_height = 600
+; 列表视口高度（设计像素，与按钮/面板同一缩放比例，保证任意分辨率下显示的行数一致）
+; 1200 设计像素 = 1080p 下 600 屏幕像素
+global $list_viewport_height = 1200
 global $list_viewport_y_size = 0
 global $total_list_y_size = 0
 global $list_top_y = 0
@@ -56,6 +58,10 @@ global $Hearder_height = {{ header_height }}
 
 global $Footer_y_size = 0
 global $Footer_height = {{ footer_height }}
+
+; Mod Link 行（位于 Author Name 下方，无链接时高度为 0）
+global $FooterLink_y_size = 0
+global $FooterLink_height = {{ footer_link_height }}
 
 global $Button_y_size = 0
 global $Button_height = {{ button_height }}
@@ -243,6 +249,9 @@ if $menu && $object_detected
 
     run = CommandListDrawUIElement
     run = CommandListDrawUIHeader
+{% if footer_link_height > 0 %}
+    run = CommandListDrawUIFooterLink
+{% endif %}
     run = CommandListDrawUIFooter
 
 {%- for obj in list_gui_objects %}
@@ -292,19 +301,21 @@ $res_height = res_height
 $Element_x_size = $Element_norm_width
 $Hearder_y_size = $Element_x_size * (res_width / res_height) * ($Hearder_height / $Element_width)
 $Footer_y_size = $Element_x_size * (res_width / res_height) * ($Footer_height / $Element_width)
+$FooterLink_y_size = $Element_x_size * (res_width / res_height) * ($FooterLink_height / $Element_width)
 $Button_y_size = $Element_x_size * (res_width / res_height) * ($Button_height / $Element_width)
 
 ; UI 总宽度 = 元素宽度
 $UI_x_size = $Element_x_size
 
-; 列表视口高度（固定像素 → 归一化）
-$list_viewport_y_size = $list_viewport_height / $res_height
+; 列表视口高度（设计像素 → 归一化，与按钮使用同一缩放比例）
+; 不能直接用屏幕像素除以分辨率，否则分辨率越高行高越大而视口不变，可见行数会变少
+$list_viewport_y_size = $Element_x_size * (res_width / res_height) * ($list_viewport_height / $Element_width)
 
 ; 整个按钮列表的总高度（归一化）
 $total_list_y_size = ($Button_y_size + $UI_Gap * res_width / res_height) * $Button_amount + $UI_Gap * res_width / res_height
 
-; UI 高度 = 头部 + 视口 + 尾部
-$UI_y_size = $Hearder_y_size + $list_viewport_y_size + $Footer_y_size
+; UI 高度 = 头部 + 视口 + Mod Link 行 + 尾部（Author Name，最底部）
+$UI_y_size = $Hearder_y_size + $list_viewport_y_size + $FooterLink_y_size + $Footer_y_size
 
 ; 滚动偏移钳制
 if $scroll_offset < 0
@@ -632,6 +643,7 @@ w87 = $final_y_off
 ps-t100 = ResourceUIHeader
 run = CustomShaderElement
 
+; Author Name 行（UI 最底部，位于 Mod Link 行下方）
 [CommandListDrawUIFooter]
 x87 = $Element_x_size
 y87 = $Footer_y_size
@@ -639,6 +651,16 @@ z87 = $final_x_off
 w87 = $final_y_off + $UI_y_size - $Footer_y_size
 ps-t100 = ResourceUIFooter
 run = CustomShaderElement
+{% if footer_link_height > 0 %}
+; Mod Link 行（位于 Author Name 上方）
+[CommandListDrawUIFooterLink]
+x87 = $Element_x_size
+y87 = $FooterLink_y_size
+z87 = $final_x_off
+w87 = $final_y_off + $UI_y_size - $FooterLink_y_size - $Footer_y_size
+ps-t100 = ResourceUIFooterLink
+run = CustomShaderElement
+{% endif %}
 
 [CommandListStartDrag]
 if $is_dragging == 0
@@ -1107,6 +1129,10 @@ filename = res/Header.png
 
 [ResourceUIFooter]
 filename = res/Footer.png
+{% if footer_link_height > 0 %}
+[ResourceUIFooterLink]
+filename = res/FooterLink.png
+{% endif %}
 
 [ResourceButtonBorder]
 filename = res/ButtonBorder.png

@@ -255,7 +255,7 @@ class IniMaker:
 
             return False
 
-    def build_list_gui_ini(self, header_height=102, footer_height=60, button_height=75):
+    def build_list_gui_ini(self, header_height=102, footer_height=60, footer_link_height=0, button_height=75):
         list_gui_template_path = Path(os.path.realpath(__file__)).parent.parent / 'templates' / 'list_gui.ini.j2'
         with open(list_gui_template_path, 'r', encoding='utf-8') as f:
             template_string = f.read()
@@ -263,11 +263,12 @@ class IniMaker:
         # Map of mutual-exclusion groups (object name -> other object names in the same group)
         exclusion_groups = self._build_mutual_exclusion_groups()
 
-        # Collect all objects for ListGUI buttons (skip empty meshes with <= 4 vertices)
+        # Collect all objects for ListGUI buttons (skip empty meshes with <= 4 vertices
+        # and objects hidden in viewport)
         list_gui_objects = []
         for component in self.merged_object.components:
             for obj in component.objects:
-                if obj.vertex_count <= 4:
+                if obj.vertex_count <= 4 or obj.hidden:
                     continue
                 list_gui_objects.append({
                     'name': obj.name,
@@ -285,6 +286,7 @@ class IniMaker:
             list_gui_objects=list_gui_objects,
             header_height=header_height,
             footer_height=footer_height,
+            footer_link_height=footer_link_height,
             button_height=button_height,
             **vars(self)
         )
@@ -446,19 +448,47 @@ class IniMaker:
         _draw.line([(2, header_h - 3), (button_w - 2, header_h - 3)], fill=(61, 78, 90, 255), width=5)
         header_im.save(header_path)
 
+        # The top border line delimits the whole info block (Mod Link + Author Name),
+        # so it is drawn on whichever of the two rows is on top
+        has_mod_link = self.mod_info.mod_link.strip() != ''
+
         # Footer image (Author Name), right-aligned in fixed width
         footer_path = str(res_folder / 'Footer.png')
         footer_w, footer_h = t2i_header.generate_fixed(self.mod_info.mod_author, footer_path, button_w, text_align='right', line_spacing=0.5)
-        # Draw top border line on footer
-        footer_im = Image.open(footer_path)
-        _draw = ImageDraw.Draw(footer_im)
-        _draw.line([(2, 2), (button_w - 2, 2)], fill=(61, 78, 90, 255), width=5)
-        footer_im.save(footer_path)
+        if not has_mod_link:
+            # Draw top border line on footer (only when there is no Mod Link row above it)
+            footer_im = Image.open(footer_path)
+            _draw = ImageDraw.Draw(footer_im)
+            _draw.line([(2, 2), (button_w - 2, 2)], fill=(61, 78, 90, 255), width=5)
+            footer_im.save(footer_path)
+
+        # Mod Link image, left-aligned above the author line (smaller font)
+        footer_link_h = 0
+        if has_mod_link:
+            t2i_footer_link = Text2Image(
+                font_path="H7GBK-Heavy.ttf",
+                text_color=(249, 255, 255, 255),
+                border_thickness=0,
+                bg_color=(0, 0, 0, 0),
+                font_size=30,
+                # Extra top padding leaves the same gap under the border line as the footer
+                padding=(16, 8, 24, 16),
+            )
+            footer_link_path = str(res_folder / 'FooterLink.png')
+            # Break long links right after a '/' so they wrap at path boundaries
+            _, footer_link_h = t2i_footer_link.generate_fixed(
+                self.mod_info.mod_link, footer_link_path, button_w,
+                text_align='left', line_spacing=0.5, break_chars='/')
+            # Draw top border line on the Mod Link row, so it sits above the link text
+            footer_link_im = Image.open(footer_link_path)
+            _draw = ImageDraw.Draw(footer_link_im)
+            _draw.line([(2, 2), (button_w - 2, 2)], fill=(61, 78, 90, 255), width=5)
+            footer_link_im.save(footer_link_path)
 
         # Button text images (one per object) - fixed size, transparent bg, no border
         for component in self.merged_object.components:
             for obj in component.objects:
-                if obj.vertex_count <= 4:
+                if obj.vertex_count <= 4 or obj.hidden:
                     continue
                 icon_name = self.formatter.format_ini_drawvar(obj.name).replace('$', '')
                 display_name = strip_component_prefix(obj.name)
@@ -476,6 +506,7 @@ class IniMaker:
         list_gui_ini = self.build_list_gui_ini(
             header_height=header_h,
             footer_height=footer_h,
+            footer_link_height=footer_link_h,
             button_height=button_h,
         )
         list_gui_path = gui_folder / 'ListGUI.ini'

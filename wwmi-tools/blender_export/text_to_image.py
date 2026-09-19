@@ -14,33 +14,60 @@ except ImportError:
     from PIL import Image, ImageDraw, ImageFont
 
 
-def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int) -> List[str]:
-    """Wrap text to fit within max_width pixels, breaking at word boundaries when possible."""
+def _text_width(font: ImageFont.FreeTypeFont, text: str) -> int:
+    bbox = font.getbbox(text)
+    return bbox[2] - bbox[0]
+
+
+def _split_long_word(word: str, font: ImageFont.FreeTypeFont, max_width: int, break_chars: str = '') -> List[str]:
+    """Split a single word that does not fit into max_width.
+
+    Cuts right after the last break char (e.g. '/' in a URL) that still fits, so
+    that long links are broken at a path boundary instead of mid-character.
+    Falls back to cutting at the last character that fits."""
+    parts = []
+    remaining = word
+    while remaining:
+        if _text_width(font, remaining) <= max_width:
+            parts.append(remaining)
+            break
+        # Longest prefix of the remaining text that still fits
+        cut = 0
+        for i in range(1, len(remaining) + 1):
+            if _text_width(font, remaining[:i]) > max_width:
+                break
+            cut = i
+        if cut == 0:
+            cut = 1  # Always make progress
+        if break_chars:
+            # Search backwards for a break char and cut right after it
+            for i in range(cut, 0, -1):
+                if remaining[i - 1] in break_chars:
+                    cut = i
+                    break
+        parts.append(remaining[:cut])
+        remaining = remaining[cut:]
+    return parts
+
+
+def _wrap_text(text: str, font: ImageFont.FreeTypeFont, max_width: int, break_chars: str = '') -> List[str]:
+    """Wrap text to fit within max_width pixels, breaking at word boundaries when possible.
+    break_chars: extra characters to prefer as line break points inside long words."""
     lines = []
     for paragraph in text.split('\n'):
         words = paragraph.split(' ')
         current_line = ''
         for word in words:
             test_line = current_line + (' ' if current_line else '') + word
-            bbox = font.getbbox(test_line)
-            line_width = bbox[2] - bbox[0]
+            line_width = _text_width(font, test_line)
             if line_width <= max_width:
                 current_line = test_line
             else:
                 if current_line:
                     lines.append(current_line)
                 # If a single word exceeds max_width, force-split it
-                if font.getbbox(word)[2] - font.getbbox(word)[0] > max_width:
-                    current_line = ''
-                    for ch in word:
-                        test = current_line + ch
-                        if font.getbbox(test)[2] - font.getbbox(test)[0] > max_width and current_line:
-                            lines.append(current_line)
-                            current_line = ch
-                        else:
-                            current_line = test
-                    if current_line:
-                        lines.append(current_line)
+                if _text_width(font, word) > max_width:
+                    lines.extend(_split_long_word(word, font, max_width, break_chars))
                     current_line = ''
                 else:
                     current_line = word
@@ -137,18 +164,19 @@ class Text2Image:
         image.save(output_path)
         print(f"Image saved: {output_path}")
 
-    def generate_fixed(self, text: str, output_path: str, width: int, height: int = None, text_align: str = 'left', line_spacing: float = 0.2) -> Tuple[int, int]:
+    def generate_fixed(self, text: str, output_path: str, width: int, height: int = None, text_align: str = 'left', line_spacing: float = 0.2, break_chars: str = '') -> Tuple[int, int]:
         """Generate image with fixed width (and optionally fixed height).
         Text that exceeds width wraps to new lines.
         If height is given, image is exactly width x height and text clips if it overflows.
         text_align: 'left' or 'right'
+        break_chars: characters preferred as line break points inside long words (e.g. '/' for links)
         Returns (width, height) of the generated image."""
         font = self._load_font()
 
         p_top, p_bottom, p_left, p_right = self.padding
         max_text_width = width - p_left - p_right
 
-        lines = _wrap_text(text, font, max_text_width)
+        lines = _wrap_text(text, font, max_text_width, break_chars)
 
         # Calculate total text height
         line_heights = []

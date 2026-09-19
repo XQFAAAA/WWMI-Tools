@@ -33,6 +33,11 @@ class TempObject:
     # Name of the parent object (only set if the parent is also exported from the
     # same collection). Used to detect mutual-exclusion parent/child groups for List GUI.
     parent: str = None
+    # Source object's viewport visibility (Blender's "Hide in Viewport" toggle,
+    # i.e. Object.hide_get()), used to skip the object in List GUI.
+    # Read from the source object because the temporary copy is created before this
+    # flag matters and must not depend on it.
+    hidden: bool = False
 
 
 @dataclass
@@ -171,6 +176,7 @@ class ObjectMerger:
                 name=obj.name,
                 object=temp_obj,
                 parent=parent_name,
+                hidden=object_is_hidden(obj),
             ))
 
             num_objects += 1
