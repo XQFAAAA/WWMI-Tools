@@ -393,7 +393,7 @@ class ObjectMergerWWMI(ObjectMerger):
 
                             # Menu Switch node (Blender native): bind the slot to the switch
                             # resource and collect all images connected to the switch's inputs
-                            if self._texture_mode == 'SLOT' and self.is_menu_switch_node(from_node):
+                            if self.is_menu_switch_node(from_node):
                                 base_match = re.match(r'ps-t\d+', input_name)
                                 base_input_name = base_match.group(0) if base_match else input_name
                                 slot_data = shader_texture_usage[component_key][found_vs_key][ps_key]
@@ -421,6 +421,16 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'width': 0,
                                     'height': 0,
                                 })
+                                # Path mode: the slot hash must point at the switch alias
+                                # instead of a single texture, so the texture ListGUI picks
+                                # at runtime is the one bound to this hash.
+                                hash_value = slot_data_entry.get('hash', '')
+                                if hash_value and hash_value not in path_hash_textures:
+                                    path_hash_textures[hash_value] = {
+                                        'dds_export_name': switch['input_dds'][0],
+                                        'resource_name': switch['identifier'],
+                                        'hash': hash_value,
+                                    }
                                 continue
 
                             # Check if the source is an image texture node

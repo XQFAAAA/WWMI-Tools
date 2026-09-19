@@ -62,7 +62,7 @@ global persist {{ formatter.format_ini_drawvar(obj.name) }} = {% if cfg.use_list
 {%- endfor %}
 {%- endfor %}
 {%- endif %}
-{%- if cfg.texture_mode == 'SLOT' and menu_switches %}
+{%- if menu_switches %}
 {{note("Menu Switch (菜单切换) resource aliases, default to the first connected texture of each switch")}}
 {%- for switch in menu_switches %}
 ResourceTexture{{ switch.identifier }} = ref ResourceTexture{{ switch.inputs[0] }}
@@ -319,7 +319,7 @@ filename = Textures/{{ texture.dds_export_name }}
 {%- endfor %}
 {%- endif %}
 
-{%- if cfg.texture_mode == 'SLOT' and menu_switches %}
+{%- if menu_switches %}
 {{note("Menu Switch resources are aliased at runtime by ListGUI, no static filename is needed")}}
 {%- for switch in menu_switches %}
 
