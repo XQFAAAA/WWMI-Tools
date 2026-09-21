@@ -1337,10 +1337,10 @@ def register():
         return
     updater.clear_state()  # Clear internal vars, avoids reloading oddities.
     updater.engine = "Github"
-    updater.user = "SpectrumQT"
+    updater.user = "XQFAAAA"
     updater.repo = "WWMI-Tools"
     # updater.addon = # define at top of module, MUST be done first
-    updater.website = "https://github.com/SpectrumQT/WWMI-Tools/releases"
+    updater.website = "https://github.com/XQFAAAA/WWMI-Tools/releases"
     updater.subfolder_path = "wwmi-tools"
     updater.current_version = bl_info["version"]
     updater.verbose = True  # make False for production default
@@ -1350,7 +1350,7 @@ def register():
     updater.remove_pre_update_patterns = ["*.py", "*.pyc"]
     updater.include_branches = True
     updater.use_releases = True
-    updater.include_branch_list = ['main']  # None is the equivalent = ['master']
+    updater.include_branch_list = ['xqfa']  # None is the equivalent = ['master']
     updater.manual_only = False
 
     # Used for development only, "pretend" to install an update to test
