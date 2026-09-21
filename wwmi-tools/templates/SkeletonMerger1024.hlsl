@@ -1,7 +1,3 @@
-; Skeleton Merger with doubled skeleton constant buffer array.
-; Used for merged instance mods with more than 512 merged bones, where the original
-; Shaders/SkeletonMerger.hlsl (float4 Skeleton[768]) cannot address bone ids above 767.
-
 cbuffer Skeleton : register(b8)
 {
   float4 Skeleton[1536];
