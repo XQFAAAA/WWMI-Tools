@@ -40,6 +40,8 @@ global $is_button_pressed = 0
 global $button_press_x = 0
 global $button_press_y = 0
 global $button_pressed_number = 0
+; 按下与抬起之间允许的光标位移容差（归一化坐标），超出才视为拖动滚动
+global $click_tolerance = 0.004
 
 ; 滚动系统
 global $scroll_offset = 0
@@ -521,10 +523,10 @@ if !$mouse_hold
     $is_texframe_scrolling = 0
 endif
 
-; 按钮按下延迟触发：按住不动→等待，移动→滚动，释放→触发
+; 按钮按下延迟触发：按住不动→等待，移动超过容差→滚动，释放→触发
 if $is_button_pressed
     if $mouse_hold
-        if cursor_x != $button_press_x || cursor_y != $button_press_y
+        if cursor_x > $button_press_x + $click_tolerance || cursor_x < $button_press_x - $click_tolerance || cursor_y > $button_press_y + $click_tolerance || cursor_y < $button_press_y - $click_tolerance
             $is_button_pressed = 0
             $is_scrolling = 1
             $scroll_start_y = cursor_y

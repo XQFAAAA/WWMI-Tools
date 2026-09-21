@@ -81,18 +81,28 @@ class DataModelWWMI(DataModel):
             mesh_scale: float = 1.0,
             mesh_rotation: Tuple[float] = (0.0, 0.0, 0.0),
             object_index_layout: Optional[List[int]] = None,
+            build_blend_r16: bool = False,
         ) -> Tuple[Dict[str, NumpyBuffer], int, Optional[List[int]]]:
 
         if buffers_format is None:
             buffers_format = self.buffers_format
 
-        build_blend_remaps = object_index_layout is not None and 'Blend' not in excluded_buffers
+        # Merged instance mods request 16-bit VG ids to build their 16-bit blend indices
+        # buffer (Blend_R16.buf) directly from the exported vertex data. They don't use
+        # the blend remap system: it works with 8-bit blend indices only and its lookup
+        # tables are only 512 VG ids long, so it fails for mods using more VGs.
+        build_blend_r16 = build_blend_r16 and 'Blend' not in excluded_buffers
+        build_blend_remaps = (
+            object_index_layout is not None and 'Blend' not in excluded_buffers and not build_blend_r16)
 
-        # Request 16-bit VG ids for Blend Remap system
-        if build_blend_remaps:
+        # Request 16-bit VG ids for Blend Remap system / Blend_R16 buffer
+        if build_blend_remaps or build_blend_r16:
+            # Copy the layouts to not leak the request into other exports
+            # (`self.buffers_format` is a shared class attribute)
+            buffers_format = dict(buffers_format)
             # Number of VGs per vertex may vary based on buffers_format, we should respect it
             num_vgs = buffers_format['Blend'].get_element(AbstractSemantic(Semantic.Blendindices, 0)).get_num_values()
-            buffers_format['BlendRemapVertexVG'] = BufferLayout([
+            buffers_format['BlendRemapVertexVG' if build_blend_remaps else 'BlendVertexId16'] = BufferLayout([
                 BufferSemantic(AbstractSemantic(Semantic.Blendindices, 1), DXGIFormat.R16_UINT, stride=num_vgs*2),
             ])
 
@@ -116,6 +126,18 @@ class DataModelWWMI(DataModel):
         )
 
         buffers = self.build_buffers(index_data, vertex_buffer, excluded_buffers, buffers_format)
+
+        if build_blend_r16:
+            # `Blend` is only used as a source of the blend weights here, the mod uses
+            # `Blend_R16` as its 16-bit blend buffer, so the 8-bit one is not exported
+            vg_ids_buffer = buffers.pop('BlendVertexId16', None)
+            blend_buffer = buffers.pop('Blend', None)
+            if vg_ids_buffer is None or blend_buffer is None:
+                raise ValueError('Blend_R16 buffer requires `Blend` and 16-bit VG ids buffers to be generated!')
+            buffers['Blend_R16'] = self.build_blend_r16_buffer(
+                vg_ids_buffer.get_field(vg_ids_buffer.layout.semantics[0].get_name()),
+                blend_buffer,
+            )
 
         vertex_ids = vertex_buffer.get_field(AbstractSemantic(Semantic.VertexId).get_name())
 
@@ -357,3 +379,70 @@ class DataModelWWMI(DataModel):
         print(f'Blend remap time: {time.time() - start_time :.3f}s ({int(len(blend_remap_forward) / 512)} remaps)')
 
         return buffers
+
+    def build_blend_r16_buffer(
+            self,
+            vg_ids_16: numpy.ndarray,
+            blend_buffer: NumpyBuffer,
+    ) -> NumpyBuffer:
+        """Builds the 16-bit blend indices/weights buffer used by merged instance mods.
+
+        Follows the conversion algorithm of BlendBufferrR8-R16.py:
+        1. Convert the 8-bit UNORM weights to 16-bit UNORM via `x * 257`
+           (keeps the floating point value identical: x/255 == x*257/65535).
+        2. Replace the bone indices with the 16-bit VG ids of each vertex taken
+           from the exported vertex data, so VG ids above 255 (8-bit blend indices
+           of `Blend` buffer cannot address them) are supported.
+
+        Resulting per-vertex layout (8 values per vertex):
+          [0:8]   R16G16B16A16_UINT   bone indices 0-3   (16-bit VG ids)
+          [8:16]  R16G16B16A16_UINT   bone indices 4-7   (16-bit VG ids)
+          [16:24] R16G16B16A16_UNORM  bone weights 0-3   (from Blend * 257)
+          [24:32] R16G16B16A16_UNORM  bone weights 4-7   (from Blend * 257)
+        """
+        start_time = time.time()
+
+        # Collect blend weight fields in layout order
+        weight_fields = [s for s in blend_buffer.layout.semantics if s.abstract.enum == Semantic.Blendweight]
+        if not weight_fields:
+            raise ValueError('Blend buffer layout is missing BLENDWEIGHT semantics!')
+
+        weights_8 = numpy.concatenate([blend_buffer.get_field(s.get_name()) for s in weight_fields], axis=1)
+        # 16-bit UNORM weights: bit-replicate 8-bit values (x * 257)
+        weights_16 = (weights_8.astype(numpy.uint16) * 257)
+
+        vg_ids_16 = vg_ids_16.astype(numpy.uint16)
+        if vg_ids_16.shape[1] != weights_16.shape[1]:
+            raise ValueError(
+                f'16-bit VG id count per vertex ({vg_ids_16.shape[1]}) does not match '
+                f'Blend weight count per vertex ({weights_16.shape[1]})!')
+
+        # Build the R16 layout: all index chunks first, then all weight chunks
+        r16_semantics = []
+        for chunk in range(vg_ids_16.shape[1] // 4):
+            r16_semantics.append(BufferSemantic(
+                AbstractSemantic(Semantic.Blendindices, chunk),
+                DXGIFormat.R16_UINT, stride=8))
+        for chunk in range(weights_16.shape[1] // 4):
+            r16_semantics.append(BufferSemantic(
+                AbstractSemantic(Semantic.Blendweight, chunk),
+                DXGIFormat.R16_UNORM, stride=8))
+
+        r16 = NumpyBuffer(BufferLayout(r16_semantics), size=len(blend_buffer))
+
+        index_chunk = 0
+        weight_chunk = 0
+        for semantic in r16_semantics:
+            if semantic.abstract.enum == Semantic.Blendindices:
+                r16.set_field(AbstractSemantic(Semantic.Blendindices, index_chunk),
+                              vg_ids_16[:, index_chunk*4:(index_chunk+1)*4])
+                index_chunk += 1
+            else:
+                r16.set_field(AbstractSemantic(Semantic.Blendweight, weight_chunk),
+                              weights_16[:, weight_chunk*4:(weight_chunk+1)*4])
+                weight_chunk += 1
+
+        print(f'Blend_R16 buffer build time: {time.time() - start_time :.3f}s '
+              f'({len(blend_buffer)} vertices, {r16.layout.stride * len(blend_buffer)} bytes)')
+
+        return r16

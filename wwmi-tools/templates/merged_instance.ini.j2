@@ -3,6 +3,9 @@ namespace = {{ namespace }}
 
 {%- macro note(text) %}{% if comment_code %}; {{ text }}{% else %};DEL{% endif %}{% endmacro %}
 
+{%- set merged_bones_limit = 1024 if merged_object.vg_count > 512 else 512 %}
+{%- set skeleton_merger_1024 = merged_bones_limit > 512 %}
+
 ; Mod State -------------------------
 
 {%- if cfg.use_ini_toggles %}
@@ -259,7 +262,11 @@ if $merge_status_id == 0
         {{note("Set custom scale for skeleton, changing size of the entire model")}}
         $\WWMIv1\custom_mesh_scale = {{ '%0.2f'| format(skeleton_scale) }}
         {{note("Run Skeleton Merger CS to merge regular skeleton data of current component into this instance's buffer")}}
+{%- if skeleton_merger_1024 %}
+        run = CustomShaderSkeletonMerger1024
+{%- else %}
         run = CustomShader\WWMIv1\SkeletonMerger
+{%- endif %}
         {{note("Memorize that we've merged regular skeleton data of current frame")}}
 		$merge_status_id = 1
 	endif
@@ -279,7 +286,11 @@ if $merge_status_id == 1
         {{note("Set custom scale for skeleton, changing size of the entire model")}}
         $\WWMIv1\custom_mesh_scale = {{ '%0.2f'| format(skeleton_scale) }}
         {{note("Run Skeleton Merger CS to merge special skeleton data of current component into this instance's buffer")}}
+{%- if skeleton_merger_1024 %}
+        run = CustomShaderSkeletonMerger1024
+{%- else %}
         run = CustomShader\WWMIv1\SkeletonMerger
+{%- endif %}
         {{note("Memorize that we've merged both regular and special skeleton data of current frame")}}
 		$merge_status_id = 2
 	endif
@@ -745,22 +756,22 @@ array = {{ 32 * merged_object.shapekeys.batches | length }}
 
 {{note("Stores base merged skeleton, also used as initial state for every pool slot")}}
 [ResourceMergedSkeletonRW]
-{{note("Contains up to 512 bones (16-bit blend indices support VG ids above 255)")}}
+{{note("Contains up to %d bones (16-bit blend indices support VG ids above 255)" | format(merged_bones_limit))}}
 type = RWBuffer
 format = R32G32B32A32_FLOAT
-{{note("512 bones, 3 elements per bone, 4 floats per element")}}
-array = 1536
+{{note("%d bones, 3 elements per bone, 4 floats per element" | format(merged_bones_limit))}}
+array = {{ merged_bones_limit * 3 }}
 
 {{note("Stores a copy of full extra skeleton merged in previous frame")}}
 [ResourceExtraMergedSkeleton]
 
 {{note("Stores additional merged skeleton used by some shaders like Anti Aliasing")}}
 [ResourceExtraMergedSkeletonRW]
-{{note("Contains up to 512 bones (16-bit blend indices support VG ids above 255)")}}
+{{note("Contains up to %d bones (16-bit blend indices support VG ids above 255)" | format(merged_bones_limit))}}
 type = RWBuffer
 format = R32G32B32A32_FLOAT
-{{note("512 bones, 3 elements per bone, 4 floats per element")}}
-array = 1536
+{{note("%d bones, 3 elements per bone, 4 floats per element" | format(merged_bones_limit))}}
+array = {{ merged_bones_limit * 3 }}
 
 {{note("Pool of merged skeleton buffers, one slot per instance")}}
 [PoolMergedSkeleton]
@@ -782,7 +793,7 @@ pool_lazy_initialization = 0
 pool_allocate_slot_on_missing = 1
 type = RWBuffer
 format = R32G32B32A32_FLOAT
-array = 1536
+array = {{ merged_bones_limit * 3 }}
 bind_flags = shader_resource unordered_access
 
 {{note("Pool of extra merged skeleton RW buffers, one slot per instance")}}
@@ -793,7 +804,7 @@ pool_lazy_initialization = 0
 pool_allocate_slot_on_missing = 1
 type = RWBuffer
 format = R32G32B32A32_FLOAT
-array = 1536
+array = {{ merged_bones_limit * 3 }}
 bind_flags = shader_resource unordered_access
 
 {%- for instance in range(cfg.mod_merged_instance_count) %}
@@ -803,13 +814,50 @@ bind_flags = shader_resource unordered_access
 [ResourceMergedSkeletonRW{{ instance }}]
 type = RWBuffer
 format = R32G32B32A32_FLOAT
-array = 1536
+array = {{ merged_bones_limit * 3 }}
 [ResourceExtraMergedSkeleton{{ instance }}]
 [ResourceExtraMergedSkeletonRW{{ instance }}]
 type = RWBuffer
 format = R32G32B32A32_FLOAT
-array = 1536
+array = {{ merged_bones_limit * 3 }}
 {%- endfor %}
+
+{%- if skeleton_merger_1024 %}
+
+; Skeleton Override: doubled skeleton constant buffer array -------------------------
+
+{{note("Skeleton Merger with float4 Skeleton[1536] instead of [768], required for more than 512 merged bones")}}
+{{note("Same as [CustomShaderSkeletonMerger] of WWMI core, but uses Shaders/SkeletonMerger1024.hlsl shipped with this mod")}}
+[CustomShaderSkeletonMerger1024]
+; Load shader and explicitly unbind other shaders for safety
+cs = Shaders/SkeletonMerger1024.hlsl
+vs = null
+ps = null
+hs = null
+ds = null
+gs = null
+; Backup used IniParams
+local $bak_x1 = x1
+local $bak_z1 = z1
+local $bak_w1 = w1
+; Pass variables
+x1 = $\WWMIv1\custom_mesh_scale
+z1 = $\WWMIv1\vg_offset
+w1 = $\WWMIv1\vg_count
+; Pass resources to the shader
+; Expects cs-cb0
+; Expects bone data resource in cs-t3 or cs-t4
+; Expects merged skeleton resource in cs-u6
+; cs-u6 = ResourceMergedSkeletonRW
+; Run the compute shader
+dispatch = $\WWMIv1\vg_count/64+1, 1, 1
+; Unbind resources
+cs-u6 = null
+; Restore IniParams:
+post x1 = $bak_x1
+post z1 = $bak_z1
+post w1 = $bak_w1
+{%- endif %}
 
 ; Resources: Buffers -------------------------
 
