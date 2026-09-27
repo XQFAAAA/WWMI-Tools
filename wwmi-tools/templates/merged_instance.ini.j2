@@ -420,7 +420,9 @@ if $mod_enabled
             {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
             {%- endfor %}
         {%- endfor %}
+        {%- if group.node_groups %}
         endif
+        {%- endif %}
         {%- for obj in group.objects %}
         ; Draw {{ obj.name }}
         {%- if cfg.use_ini_toggles %}
@@ -433,7 +435,7 @@ if $mod_enabled
         {%- endfor %}
         {%- endfor %}
         {%- else %}
-        {%- if merged_object.components[component_index].material %}
+        {%- if merged_object.components[component_index].material and merged_object.components[component_index].material.node_groups %}
         {%- for node_group in merged_object.components[component_index].material.node_groups %}
         {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %}{% if cfg.rabbitfx %} ps == 1718.1 &&{% endif %} 1
             {%- for input in node_group.inputs %}
