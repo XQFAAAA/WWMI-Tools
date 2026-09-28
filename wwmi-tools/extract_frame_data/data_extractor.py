@@ -70,70 +70,83 @@ class DataExtractor:
         self.handle_shapekey_cs_0(list(self.call_branches.values()))
         self.handle_draw_vs(list(self.call_branches.values()))
 
+        # 帧文件夹中可能存在多条形态键链路（如画面中其他模型各自的数据），只有
+        # "链路起始 u0（SHAPEKEY_OUTPUT）hash == 提取模型 vb6 hash"的链路才能
+        # 确认归属该模型，其余链路直接忽略，避免多条链路相互干扰导致出错
+        draw_shapekey_hashes = {
+            data.shapekey_hash for data in self.draw_data.values() if data.shapekey_hash is not None
+        }
+        self.shape_key_data = {
+            shapekey_hash: data for shapekey_hash, data in self.shape_key_data.items()
+            if shapekey_hash in draw_shapekey_hashes
+        }
+
     def handle_shapekey_cs_0(self, call_branches):
         for call_branch in call_branches:
             if call_branch.shader_id != 'SHAPEKEY_CS_0':
                 continue
-            for branch_call in call_branch.calls:
-                self.verify_shader_hash(branch_call.call, call_branch.shader_id, 1)
-            # We don't need any data from this call, lets go deeper
-            self.handle_shapekey_cs_1(call_branch.nested_branches)
-
-    def handle_shapekey_cs_1(self, call_branches):
-        for call_branch in call_branches:
-            if call_branch.shader_id != 'SHAPEKEY_CS_1':
-                continue
-
-            for branch_call in call_branch.calls:
+            # 每条嵌套的 SHAPEKEY_CS_1 分支都是一条独立的形态键链路，不同链路可能
+            # 使用不同的着色器 hash，彼此隔离处理：单条链路失败只丢弃该链路的数据，
+            # 不影响其他链路
+            for chain_branch in (call_branch.nested_branches or []):
                 try:
-                    self.verify_shader_hash(branch_call.call, call_branch.shader_id, 1)
-                    self.handle_shapekey_cs_2(call_branch.nested_branches)
+                    self.handle_shapekey_chain(chain_branch)
                 except Exception as e:
-                    print(f'Warning! Failed to process Shape Key CS call {branch_call.call}, data may end up missing! (safe to ignore if no fatal errors)')
+                    print(f'Warning! Failed to process Shape Key chain, its data may end up missing! (safe to ignore if no fatal errors): {e}')
                     continue
-                
-                shapekey_hash = branch_call.resources['SHAPEKEY_OUTPUT'].hash
-                shapekey_scale_hash = branch_call.resources['SHAPEKEY_SCALE_OUTPUT'].hash
-                vertex_ids_hash = branch_call.resources['SHAPEKEY_VERTEX_ID_HASH'].hash
-                vertex_offsets_hash = branch_call.resources['SHAPEKEY_VERTEX_OFFSET_HASH'].hash
 
-                cached_shape_key_data = self.shape_key_data.get(shapekey_hash, None)
+    def handle_shapekey_chain(self, chain_branch):
+        # 每条链路使用独立的 shader hash 缓存，避免不同链路间 hash 不一致被误判为错误
+        chain_shader_hashes = {}
 
-                if cached_shape_key_data is None:
-                    shape_key_data = ShapeKeyData(
-                        shapekey_hash=shapekey_hash,
-                        shapekey_scale_hash=shapekey_scale_hash,
-                        vertex_ids_hash=vertex_ids_hash,
-                        vertex_offsets_hash=vertex_offsets_hash,
-                        entries=[ShapeKeyDataEntry(
-                            dispatch_y=branch_call.call.parameters[CallParameters.Dispatch].ThreadGroupCountY,
-                            shapekey_offset_buffer=branch_call.resources['SHAPEKEY_OFFSET_BUFFER'],
-                            shapekey_vertex_id_buffer=branch_call.resources['SHAPEKEY_VERTEX_ID_BUFFER'],
-                            shapekey_vertex_offset_buffer=branch_call.resources['SHAPEKEY_VERTEX_OFFSET_BUFFER'],
-                        )]
-                    )
-                    self.shape_key_data[shapekey_hash] = shape_key_data
+        # 先校验链路末端的 SHAPEKEY_CS_2，确保链路完整（输出可绑定给 draw 的 vb6）
+        self.handle_shapekey_cs_2(chain_branch.nested_branches or [], chain_shader_hashes)
+
+        for branch_call in chain_branch.calls:
+            self.verify_shader_hash(branch_call.call, chain_branch.shader_id, 1, chain_shader_hashes)
+
+            shapekey_hash = branch_call.resources['SHAPEKEY_OUTPUT'].hash
+            shapekey_scale_hash = branch_call.resources['SHAPEKEY_SCALE_OUTPUT'].hash
+            vertex_ids_hash = branch_call.resources['SHAPEKEY_VERTEX_ID_HASH'].hash
+            vertex_offsets_hash = branch_call.resources['SHAPEKEY_VERTEX_OFFSET_HASH'].hash
+
+            cached_shape_key_data = self.shape_key_data.get(shapekey_hash, None)
+
+            if cached_shape_key_data is None:
+                shape_key_data = ShapeKeyData(
+                    shapekey_hash=shapekey_hash,
+                    shapekey_scale_hash=shapekey_scale_hash,
+                    vertex_ids_hash=vertex_ids_hash,
+                    vertex_offsets_hash=vertex_offsets_hash,
+                    entries=[ShapeKeyDataEntry(
+                        dispatch_y=branch_call.call.parameters[CallParameters.Dispatch].ThreadGroupCountY,
+                        shapekey_offset_buffer=branch_call.resources['SHAPEKEY_OFFSET_BUFFER'],
+                        shapekey_vertex_id_buffer=branch_call.resources['SHAPEKEY_VERTEX_ID_BUFFER'],
+                        shapekey_vertex_offset_buffer=branch_call.resources['SHAPEKEY_VERTEX_OFFSET_BUFFER'],
+                    )]
+                )
+                self.shape_key_data[shapekey_hash] = shape_key_data
+            else:
+                dispatch_y = branch_call.call.parameters[CallParameters.Dispatch].ThreadGroupCountY
+                if any(getattr(entry, "dispatch_y", None) == dispatch_y for entry in cached_shape_key_data.entries):
+                    if shapekey_scale_hash != cached_shape_key_data.shapekey_scale_hash:
+                        raise ValueError(f'shapekey scale hash mismatch for SHAPEKEY_CS_1')
                 else:
-                    dispatch_y = branch_call.call.parameters[CallParameters.Dispatch].ThreadGroupCountY
-                    if any(getattr(entry, "dispatch_y", None) == dispatch_y for entry in cached_shape_key_data.entries):
-                        if shapekey_scale_hash != cached_shape_key_data.shapekey_scale_hash:
-                            raise ValueError(f'shapekey scale hash mismatch for SHAPEKEY_CS_1')
-                    else:
-                        cached_shape_key_data.entries.append(ShapeKeyDataEntry(
-                            dispatch_y=dispatch_y,
-                            shapekey_offset_buffer=branch_call.resources['SHAPEKEY_OFFSET_BUFFER'],
-                            shapekey_vertex_id_buffer=branch_call.resources['SHAPEKEY_VERTEX_ID_BUFFER'],
-                            shapekey_vertex_offset_buffer=branch_call.resources['SHAPEKEY_VERTEX_OFFSET_BUFFER'],
-                        ))
+                    cached_shape_key_data.entries.append(ShapeKeyDataEntry(
+                        dispatch_y=dispatch_y,
+                        shapekey_offset_buffer=branch_call.resources['SHAPEKEY_OFFSET_BUFFER'],
+                        shapekey_vertex_id_buffer=branch_call.resources['SHAPEKEY_VERTEX_ID_BUFFER'],
+                        shapekey_vertex_offset_buffer=branch_call.resources['SHAPEKEY_VERTEX_OFFSET_BUFFER'],
+                    ))
 
-    def handle_shapekey_cs_2(self, call_branches):
+    def handle_shapekey_cs_2(self, call_branches, chain_shader_hashes=None):
         for call_branch in call_branches:
             if call_branch.shader_id != 'SHAPEKEY_CS_2':
                 continue
             outputs = 0
             for branch_call in call_branch.calls:
                 try:
-                    self.verify_shader_hash(branch_call.call, call_branch.shader_id, 1)
+                    self.verify_shader_hash(branch_call.call, call_branch.shader_id, 1, chain_shader_hashes)
                 except Exception as e:
                     continue
                 outputs += 1
@@ -262,12 +275,16 @@ class DataExtractor:
 
                     cached_draw_data.textures.extend(textures)
 
-    def verify_shader_hash(self, call, shader_id, max_call_shaders):
+    def verify_shader_hash(self, call, shader_id, max_call_shaders, hashes=None):
+        # hashes: shader hash 缓存字典，默认使用全局缓存；形态键链路处理时
+        # 传入链路独立的缓存，使不同链路间的 hash 差异不会被判为错误
+        if hashes is None:
+            hashes = self.shader_hashes
         if len(call.shaders) != max_call_shaders:
             raise ValueError(f'number of associated shaders for {shader_id} call should be equal to {max_call_shaders}!')
-        cached_shader_hash = self.shader_hashes.get(shader_id, None)
+        cached_shader_hash = hashes.get(shader_id, None)
         call_shader_hash = next(iter(call.shaders.values())).hash
         if cached_shader_hash is None:
-            self.shader_hashes[shader_id] = call_shader_hash
+            hashes[shader_id] = call_shader_hash
         elif cached_shader_hash != call_shader_hash:
             raise ValueError(f'inconsistent shader hash {cached_shader_hash} for {shader_id}')
