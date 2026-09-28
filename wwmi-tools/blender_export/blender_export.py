@@ -31,9 +31,9 @@ from .ini_maker import IniMaker
 from .data_models.data_model_wwmi import DataModelWWMI
 
 # Image file extensions that may appear in a Blender image name; these are stripped
-# when deriving the exported texture name. Other dot suffixes (e.g. Blender's '.001'
-# duplicate naming) are intentionally kept, otherwise distinct textures like 'red'
-# and 'red.001' would collide into a single export.
+# when deriving the exported texture name. Blender's '.001' duplicate suffix is kept
+# (so distinct textures like 'red' and 'red.dds.001' stay separate), but an extension
+# sitting before it (e.g. the '.dds' in 'red.dds.001') is stripped as well.
 _IMAGE_EXTENSIONS = {
     '.dds', '.png', '.tga', '.tif', '.tiff', '.jpg', '.jpeg',
     '.bmp', '.exr', '.hdr', '.webp', '.gif', '.psd',
@@ -104,9 +104,22 @@ class ObjectMergerWWMI(ObjectMerger):
 
     @staticmethod
     def _image_base_name(image_name):
+        """Strip the real file extension from a Blender image name.
+
+        Blender appends a duplicate suffix (e.g. '.001') when several datablocks
+        share a name, so 'tex.dds.001' points at the file 'tex.dds'. In that case
+        the extension sits before the duplicate suffix, so look past a trailing
+        non-image suffix and strip an image extension found there too, while keeping
+        the duplicate suffix itself so distinct datablocks stay separate.
+        """
         stem, ext = os.path.splitext(image_name)
-        if stem and ext.lower() in _IMAGE_EXTENSIONS:
+        if not stem:
+            return image_name
+        if ext.lower() in _IMAGE_EXTENSIONS:
             return stem
+        inner_stem, inner_ext = os.path.splitext(stem)
+        if inner_stem and inner_ext.lower() in _IMAGE_EXTENSIONS:
+            return inner_stem + ext
         return image_name
 
     @staticmethod
@@ -445,16 +458,12 @@ class ObjectMergerWWMI(ObjectMerger):
                             if image is None:
                                 continue
 
-                            # Calculate base_name from image name.
-                            # Only a real file extension (e.g. '.dds') is stripped so a
-                            # format suffix never leaks into the export name. Other dot
-                            # suffixes (e.g. Blender's '.001' duplicate naming) are kept,
-                            # so distinct textures like 'red' and 'red.001' stay separate.
-                            stem, ext = os.path.splitext(image.name)
-                            if stem and ext.lower() in _IMAGE_EXTENSIONS:
-                                base_name = stem
-                            else:
-                                base_name = image.name
+                            # Calculate base_name from image name. Only a real file
+                            # extension is stripped; Blender's '.001' duplicate suffix is
+                            # kept, but an extension sitting before it (e.g. the '.dds' in
+                            # 'tex.dds.001') is stripped too, so the export name stays in
+                            # sync with the name written to the ini.
+                            base_name = self._image_base_name(image.name)
 
                             # Determine format from ShaderTextureUsage.json.
                             # Node group inputs may carry a full texture name
