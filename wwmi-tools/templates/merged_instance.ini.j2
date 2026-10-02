@@ -148,7 +148,7 @@ endif
 [CommandListUpdateMergedSkeleton]
 {{note("Reset skeleton merge status for all components (per instance via pool)")}}
 {%- for component in extracted_object.components %}
-PoolMergeStatus_{{ loop.index0 }}[*] = 0
+$PoolMergeStatus_{{ loop.index0 }}[*] = 0
 {%- endfor %}
 {{note("Copy skeleton merged in previous frame to new buffer so we could force it to vs-cb4 slot")}}
 ResourceMergedSkeleton = copy ResourceMergedSkeletonRW
