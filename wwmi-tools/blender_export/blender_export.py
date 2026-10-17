@@ -466,8 +466,8 @@ class ObjectMergerWWMI(ObjectMerger):
                             base_name = self._image_base_name(image.name)
 
                             # Determine format from ShaderTextureUsage.json.
-                            # Node group inputs may carry a full texture name
-                            # (e.g. 'ps-t0: T_R2T1...Cloth_N'), while
+                            # Node group inputs carry a format suffix
+                            # (e.g. 'ps-t0: BC7_UNORM_SRGB'), while
                             # ShaderTextureUsage.json is keyed by the base slot name (ps-t0).
                             base_match = re.match(r'ps-t\d+', input_name)
                             base_input_name = base_match.group(0) if base_match else input_name

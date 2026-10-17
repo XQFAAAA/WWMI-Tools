@@ -71,6 +71,8 @@ global persist {{ formatter.format_ini_drawvar(obj.name) }} = {% if cfg.use_list
 {%- endif %}
 {{note("Stores the instance id of the current draw call, captured from the marked Mesh Data CB (see TextureOverrideMeshDataCB)")}}
 global $instance_id = 0
+{{note("Stores the instance id of the last draw call of the previous frame, used as fallback for single instance")}}
+global $last_instance_id = 0
 {%- if menu_switches %}
 {{note("Menu Switch (菜单切换) resource aliases, default to the first connected texture of each switch")}}
 {%- for switch in menu_switches %}
@@ -146,6 +148,8 @@ endif
 
 {{note("Copes hard to make merged skeleton work with WuWa 1.1+ pipeline")}}
 [CommandListUpdateMergedSkeleton]
+{{note("Remember the instance id of the last draw call of the previous frame, used as fallback for single instance")}}
+$last_instance_id = $instance_id
 {{note("Reset skeleton merge status for all components (per instance via pool)")}}
 {%- for component in extracted_object.components %}
 $PoolMergeStatus_{{ loop.index0 }}[*] = 0
@@ -233,6 +237,15 @@ filter_index = 3381.7777
 hash = 358d62cb
 match_priority = 0
 filter_index = 3380.7777
+
+{{note("模型变换ID作为实例ID")}}
+{{note("The model transformation ID is used as the instance ID")}}
+[CommandListGetInstanceID]
+if vs-cb2 == 3380.7777
+    $instance_id = @vs-cb2
+elif vs-cb3 == 3380.7777
+    $instance_id = @vs-cb3
+endif
 
 {{note("Updates merged skeleton buffers with skeleton data of calling component")}}
 {{note("The main problem is we can't reliably identify type of skeleton just from the buffer alone since both have the same hash")}}
@@ -334,6 +347,12 @@ vb4->ElementOffset(ATTRIBUTE, 3) = 0
 vb4->ElementOffset(ATTRIBUTE, 14) = 8
 vb4->ElementOffset(ATTRIBUTE, 4) = 16
 vb4->ElementOffset(ATTRIBUTE, 15) = 24
+{{note("解决单实例时，因闪避受击动作导致模型变换矩阵vs-cb2指针变化，导致1帧重置收集的问题")}}
+{{note("使用上一帧的末尾实例ID")}}
+{{note("显然对于场景多实例时，其中发生实例ID变更时，仍有1帧的瑕疵")}}
+if #PoolMergedSkeleton[$instance_id] == -1
+    $instance_id = $last_instance_id
+endif
 {{note("Pass merged skeleton of the current instance (identified by $instance_id) to bones data CB slots")}}
 if vs-cb4 == 3381.7777
     vs-cb4 = ref PoolMergedSkeleton[$instance_id]
@@ -369,12 +388,8 @@ match_index_count = {{ component.index_count }}
 {{note("Signal our mod that object is found on screen and we can start overriding it")}}
 $object_detected = 1
 if $mod_enabled
-    {{note("Capture the instance id of the current draw call from the marked Mesh Data CB (vs-cb2 or vs-cb3)")}}
-    if vs-cb2 == 3380.7777
-        $instance_id = @vs-cb2
-    elif vs-cb3 == 3380.7777
-        $instance_id = @vs-cb3
-    endif
+    {{note("Capture the instance id of the current draw call from the marked Mesh Data CB (see CommandListGetInstanceID)")}}
+    run = CommandListGetInstanceID
     {{note("Try to get skeleton data of the current instance until merge status is 2 (see Constants for details)")}}
     if $PoolMergeStatus_{{ component_index }}[$instance_id] != 2
         {{note("Configure SkeletonMerger shader based on VG layout of current component")}}
@@ -388,7 +403,7 @@ if $mod_enabled
         $PoolMergeStatus_{{ component_index }}[$instance_id] = $merge_status_id
     endif
     {{note("Override draw call if we have a merged skeleton ready for the current instance")}}
-    if #PoolMergedSkeleton[$instance_id] !== -1
+    ; if #PoolMergedSkeleton[$instance_id] !== -1
     {%- if merged_object.components[component_index].objects | length > 0 %}
         {{note("Skip original draw call")}}
         handling = skip
@@ -510,7 +525,7 @@ if $mod_enabled
         {{note("Restore required parts of original context")}}
         ; run = CommandListCleanupSharedResources
     {%- endif %}
-    endif
+    ; endif
 endif
 
 {%- endfor %}

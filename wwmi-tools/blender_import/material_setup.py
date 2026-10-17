@@ -5,11 +5,30 @@ import bpy
 from pathlib import Path
 
 # Texture roles by filename suffix
-_TEXTURE_ROLES = ('N', 'FTM', 'RGID', 'D')
+_TEXTURE_ROLES = ('N', 'FTM', 'RGID', 'D', 'HN')
+
+# Role -> texture format, used to identify a role when the filename carries no suffix
+_ROLE_FORMATS = {
+    'D': 'BC7_UNORM_SRGB',
+    'N': 'BC7_UNORM',
+    'FTM': 'BC3_UNORM',
+    'RGID': 'R8_UNORM',
+    'HN': 'B8G8R8A8_UNORM',
+}
+
+# Role textures must be square and at least this many pixels per side
+_ROLE_MIN_SIZE = 256
+
+# Non-role textures that are not square, or have a side <= this limit, get their
+# links disabled
+_SQUARE_SIZE_LIMIT = 512
+
+# Non-role square textures of these formats stay connected regardless of size
+_SQUARE_FORMATS = ('BC3_UNORM', 'BC3_UNORM_SRGB')
 
 
 def _get_texture_role(filename):
-    """Determine texture role from filename suffix: N/FTM/RGID/D, else None.
+    """Determine texture role from filename suffix: N/FTM/RGID/D/HN, else None.
 
     e.g. T_R2T1XuanlingMd10011Bangs_FTM.dds -> FTM
          T_R2T1XuanlingMd10011Bangs_D.dds    -> D
@@ -24,24 +43,92 @@ def _get_texture_role(filename):
     return None
 
 
-def _get_slot_interface_name(slot_key, filename):
-    """Return the node group interface name for a slot.
+def _get_slot_interface_name(slot_key, texture_format):
+    """Return the node group input socket name for a slot.
 
-    Full form: 'ps-t0: T_R2T1...Cloth_N' (alpha -> 'ps-t0: T_..._N alpha').
-    Falls back to the plain slot name when no filename is available.
+    Full form: 'ps-t0: BC7_UNORM_SRGB'; the matching alpha socket is
+    '————————> ps-t0 alpha' (see _get_slot_alpha_name), which carries no
+    format suffix.
+    Falls back to the plain slot name when no format is available.
     """
-    stem = Path(filename).stem if filename else ''
-    if stem:
-        return f'{slot_key}: {stem}'
+    if texture_format:
+        return f'{slot_key}: {texture_format}'
     return slot_key
 
 
-def _get_slot_output_name(slot_key, filename, alpha=False):
-    """Output-side interface name: 'T_..._N: ps-t0' (or 'T_..._N alpha: ps-t0')."""
-    stem = Path(filename).stem if filename else ''
-    if stem:
-        return f'{stem}{" alpha" if alpha else ""}: {slot_key}'
+def _get_slot_alpha_name(slot_key):
+    """Alpha input socket name: '————————> ps-t0 alpha'.
+
+    Carries no format suffix; the leading separator keeps it visually apart
+    from the colour input while the slot key preserves uniqueness.
+    """
+    return f'————————> {slot_key} alpha'
+
+
+def _get_slot_output_name(slot_key, alpha=False):
+    """Output-side interface name: 'ps-t0' (alpha -> 'ps-t0 alpha')."""
     return f'{slot_key} alpha' if alpha else slot_key
+
+
+def _is_role_size(info):
+    """True when the texture is square and at least _ROLE_MIN_SIZE pixels per side."""
+    width = info.get('width') or 0
+    return width >= _ROLE_MIN_SIZE and width == (info.get('height') or 0)
+
+
+def _resolve_role_slots(texture_slots):
+    """Resolve the D/N/FTM/RGID/HN role slots for a texture-slot dict.
+
+    Returns {role: slot_key}, with None for roles that are not present. Only
+    square textures of at least _ROLE_MIN_SIZE px per side can be role textures.
+    Prefers the filename suffix (first slot per role wins); when no suffix is
+    found, falls back to matching by texture format, preferring the largest
+    width, then the earliest slot.
+    HN is only searched while one of the other four roles is still missing.
+    """
+    sorted_slots = sorted(texture_slots.keys(), key=lambda s: int(s.split('-t')[-1]))
+
+    eligible = [s for s in sorted_slots if _is_role_size(texture_slots[s])]
+
+    # Assign texture roles from the filename suffix: first slot per role wins
+    slot_roles = {}
+    for slot_key in eligible:
+        role = _get_texture_role(texture_slots[slot_key].get('filename', ''))
+        if role and role not in slot_roles.values():
+            slot_roles[slot_key] = role
+
+    def _by_suffix(role):
+        return next((s for s, r in slot_roles.items() if r == role), None)
+
+    def _by_format(role):
+        candidates = [s for s in eligible
+                      if texture_slots[s].get('format', '') == _ROLE_FORMATS[role]]
+        if not candidates:
+            return None
+        return max(candidates,
+                   key=lambda s: (texture_slots[s].get('width', 0), -sorted_slots.index(s)))
+
+    if slot_roles:
+        picker = _by_suffix
+        roles = {role: _by_suffix(role) for role in ('D', 'N', 'FTM', 'RGID')}
+    else:
+        picker = _by_format
+        normal_slot = _by_format('N')
+        rgid_slot = _by_format('RGID')
+        # N and ID must both be matched, otherwise connect neither
+        if normal_slot is None or rgid_slot is None:
+            normal_slot = None
+            rgid_slot = None
+        roles = {
+            'D': _by_format('D'),
+            'N': normal_slot,
+            'FTM': _by_format('FTM'),
+            'RGID': rgid_slot,
+        }
+
+    # Skip HN once all of the other four roles have been found
+    roles['HN'] = None if all(roles.values()) else picker('HN')
+    return roles
 
 
 def _group_matches_slots(ng, texture_slots):
@@ -53,8 +140,8 @@ def _group_matches_slots(ng, texture_slots):
     """
     existing = {item.name for item in ng.interface.items_tree}
     for slot_key in sorted(texture_slots.keys(), key=lambda s: int(s.split('-t')[-1])):
-        iface_key = _get_slot_interface_name(slot_key, texture_slots[slot_key].get('filename', ''))
-        if iface_key not in existing or f'{iface_key} alpha' not in existing:
+        iface_key = _get_slot_interface_name(slot_key, texture_slots[slot_key].get('format', ''))
+        if iface_key not in existing or _get_slot_alpha_name(slot_key) not in existing:
             return False
     return True
 
@@ -110,6 +197,7 @@ def _create_component_material(obj, component_key, object_source_folder, vs_ps_d
     ng_index = 0
     tex_index = 0
     tex_nodes_by_file = {}
+    group_entries = []
     for vs_key, ps_dict in vs_ps_data.items():
         for ps_key, texture_slots in ps_dict.items():
             ng_name = f'vb={object_source_folder.name}-C{component_i}-{ps_key}'
@@ -119,15 +207,19 @@ def _create_component_material(obj, component_key, object_source_folder, vs_ps_d
             ng_node = nodes.new('ShaderNodeGroup')
             ng_node.node_tree = ng
             ng_node.name = ng_name
-            # First node group is active, subsequent ones are disabled
-            is_first_group = ng_index == 0
-            ng_node.mute = not is_first_group
             ng_node.location = (ng_start_x + ng_index * ng_dx, -(ng_index * ng_dy))
             if hasattr(ng_node, 'width'):
                 ng_node.width = 400
 
+            # Mute state is decided after all groups are built (see below)
+            link_states = []
+
             # Sort slots by index (ps-t0, ps-t1, ...)
             sorted_slots = sorted(texture_slots.keys(), key=lambda s: int(s.split('-t')[-1]))
+            # D/N/FTM/RGID/HN role slots keep their connections; every other slot
+            # that is not a square texture with both sides > _SQUARE_SIZE_LIMIT
+            # gets its links disabled.
+            role_slot_set = {s for s in _resolve_role_slots(texture_slots).values() if s}
 
             for slot_idx, slot_key in enumerate(sorted_slots):
                 texture_info = texture_slots[slot_key]
@@ -159,20 +251,52 @@ def _create_component_material(obj, component_key, object_source_folder, vs_ps_d
                     tex_nodes_by_file[file_key] = tex_node
                     tex_index += 1
 
+                # Disable the link for non-role textures that are not square or
+                # have a side <= _SQUARE_SIZE_LIMIT; square BC3 textures are kept
+                # connected regardless of size
+                disable_link = False
+                if slot_key not in role_slot_set:
+                    width = texture_info.get('width') or 0
+                    height = texture_info.get('height') or 0
+                    if width > 0 and height > 0:
+                        is_square_format = (width == height
+                                            and texture_info.get('format', '') in _SQUARE_FORMATS)
+                        disable_link = not is_square_format and (
+                            width <= _SQUARE_SIZE_LIMIT
+                            or height <= _SQUARE_SIZE_LIMIT
+                            or width != height)
+
                 # Connect image texture to node group inputs
-                iface_name = _get_slot_interface_name(slot_key, filename)
+                iface_name = _get_slot_interface_name(slot_key, texture_info.get('format', ''))
                 link_color = links.new(tex_node.outputs['Color'], ng_node.inputs[iface_name])
-                link_alpha = links.new(tex_node.outputs['Alpha'], ng_node.inputs[f'{iface_name} alpha'])
-                if not is_first_group:
-                    link_color.is_muted = True
-                    link_alpha.is_muted = True
+                link_alpha = links.new(tex_node.outputs['Alpha'], ng_node.inputs[_get_slot_alpha_name(slot_key)])
+                link_states.append((link_color, link_alpha, disable_link))
 
-            # Connect the first (active) node group BSDF output to the material output.
-            # Subsequent groups are muted and left unconnected; user can wire them manually.
-            if is_first_group:
-                links.new(ng_node.outputs['BSDF'], output_node.inputs['Surface'])
-
+            group_entries.append({
+                'node': ng_node,
+                'index': ng_index,
+                'input_count': len(ng_node.inputs),
+                'link_states': link_states,
+            })
             ng_index += 1
+
+    # Activate the node group with the most input sockets, ties going to the one
+    # that comes first. Only that group is unmuted and wired to the material
+    # output; the others are muted and left unconnected so the user can wire them
+    # manually.
+    active_entry = max(group_entries, key=lambda e: (e['input_count'], -e['index'])) \
+        if group_entries else None
+    for entry in group_entries:
+        is_active = entry is active_entry
+        entry['node'].mute = not is_active
+        for link_color, link_alpha, disable_link in entry['link_states']:
+            if not is_active or disable_link:
+                link_color.is_muted = True
+                link_alpha.is_muted = True
+        if is_active:
+            diffuse_out = entry['node'].outputs.get('Diffuse')
+            links.new(diffuse_out if diffuse_out is not None else entry['node'].outputs['BSDF'],
+                      output_node.inputs['Surface'])
 
     # Assign material to object
     if obj.data.materials:
@@ -208,49 +332,23 @@ def _get_or_create_node_group(ng_name, texture_slots):
     # Sort slots by index
     sorted_slots = sorted(texture_slots.keys(), key=lambda s: int(s.split('-t')[-1]))
 
-    # Assign texture roles: first slot per role wins
-    slot_roles = {}
-    for slot_key in sorted_slots:
-        texture_info = texture_slots[slot_key]
-        filename = texture_info.get('filename', '')
-        role = _get_texture_role(filename)
-        if role and role not in slot_roles.values():
-            slot_roles[slot_key] = role
+    role_slots = _resolve_role_slots(texture_slots)
+    d_slot = role_slots['D']
+    normal_slot = role_slots['N']
+    ftm_slot = role_slots['FTM']
+    rgid_slot = role_slots['RGID']
 
-    # Fallback: if no D/N/FTM/RGID suffix found, match roles by texture format,
-    # preferring the largest width, then the earliest slot position.
-    if not slot_roles:
-        def _pick_slot(role_format):
-            candidates = [s for s in sorted_slots
-                          if texture_slots[s].get('format', '') == role_format]
-            if not candidates:
-                return None
-            return max(candidates,
-                       key=lambda s: (texture_slots[s].get('width', 0), -sorted_slots.index(s)))
-
-        d_slot = _pick_slot('BC7_UNORM_SRGB')
-        ftm_slot = _pick_slot('BC3_UNORM')
-        normal_slot = _pick_slot('BC7_UNORM')
-        rgid_slot = _pick_slot('R8_UNORM')
-        # N and ID must both be matched, otherwise connect neither
-        if normal_slot is None or rgid_slot is None:
-            normal_slot = None
-            rgid_slot = None
-    else:
-        normal_slot = next((s for s, r in slot_roles.items() if r == 'N'), None)
-        ftm_slot = next((s for s, r in slot_roles.items() if r == 'FTM'), None)
-        rgid_slot = next((s for s, r in slot_roles.items() if r == 'RGID'), None)
-        d_slot = next((s for s, r in slot_roles.items() if r == 'D'), None)
-
-    # Interface name per slot (full form, e.g. ps-t0 -> 'ps-t0: T_..._N')
-    slot_iface = {k: _get_slot_interface_name(k, texture_slots[k].get('filename', '')) for k in sorted_slots}
+    # Interface name per slot (full form, e.g. ps-t0 -> 'ps-t0: BC7_UNORM_SRGB')
+    slot_iface = {k: _get_slot_interface_name(k, texture_slots[k].get('format', '')) for k in sorted_slots}
 
     # Create interface outputs (only for roles present in this node group,
-    # so every output socket has an internal connection)
-    ng.interface.new_socket('BSDF', socket_type='NodeSocketShader', in_out='OUTPUT')
+    # so every output socket has an internal connection).
+    # Diffuse sits above BSDF so it is the first (auto-connected) output.
     output_defs = []
     if d_slot:
-        output_defs.append(('Diffuse', 'NodeSocketColor'))
+        ng.interface.new_socket('Diffuse', socket_type='NodeSocketColor', in_out='OUTPUT')
+    ng.interface.new_socket('BSDF', socket_type='NodeSocketShader', in_out='OUTPUT')
+    if d_slot:
         output_defs.append(('阴影', 'NodeSocketFloat'))
     if normal_slot:
         output_defs.append(('Normal', 'NodeSocketColor'))
@@ -264,12 +362,11 @@ def _get_or_create_node_group(ng_name, texture_slots):
     for name, socket_type in output_defs:
         ng.interface.new_socket(name, socket_type=socket_type, in_out='OUTPUT')
 
-    # ps-t output panel (ps-tN / ps-tN alpha pass-through sockets)
-    ps_output_panel = ng.interface.new_panel('ps-t', default_closed=False)
+    # ps-t output panel (ps-tN / ps-tN alpha pass-through sockets), collapsed by default
+    ps_output_panel = ng.interface.new_panel('ps-t', default_closed=True)
     for slot_key in sorted_slots:
-        filename = texture_slots[slot_key].get('filename', '')
-        out_key = _get_slot_output_name(slot_key, filename)
-        alpha_out_key = _get_slot_output_name(slot_key, filename, alpha=True)
+        out_key = _get_slot_output_name(slot_key)
+        alpha_out_key = _get_slot_output_name(slot_key, alpha=True)
         ng.interface.new_socket(out_key, socket_type='NodeSocketColor', in_out='OUTPUT', parent=ps_output_panel)
         ng.interface.new_socket(alpha_out_key, socket_type='NodeSocketFloat', in_out='OUTPUT', parent=ps_output_panel)
 
@@ -279,7 +376,7 @@ def _get_or_create_node_group(ng_name, texture_slots):
         iface_key = slot_iface[slot_key]
         socket = ng.interface.new_socket(iface_key, socket_type='NodeSocketColor', in_out='INPUT', parent=ps_input_panel)
         socket.default_value = (0.0, 0.0, 0.0, 1.0)
-        ng.interface.new_socket(f'{iface_key} alpha', socket_type='NodeSocketFloat', in_out='INPUT', parent=ps_input_panel)
+        ng.interface.new_socket(_get_slot_alpha_name(slot_key), socket_type='NodeSocketFloat', in_out='INPUT', parent=ps_input_panel)
 
     # Group Input / Group Output
     input_node = nodes.new('NodeGroupInput')
@@ -329,16 +426,16 @@ def _get_or_create_node_group(ng_name, texture_slots):
         links.new(separate_node.outputs['Green'], bsdf.inputs['Metallic'])
         links.new(separate_node.outputs['Red'], bsdf.inputs['Alpha'])
     if normal_slot:
-        links.new(input_node.outputs[f'{slot_iface[normal_slot]} alpha'], bsdf.inputs['Roughness'])
+        links.new(input_node.outputs[_get_slot_alpha_name(normal_slot)], bsdf.inputs['Roughness'])
 
     # Group output connections
     links.new(bsdf.outputs['BSDF'], output_node.inputs['BSDF'])
     if d_slot:
         links.new(input_node.outputs[slot_iface[d_slot]], output_node.inputs['Diffuse'])
-        links.new(input_node.outputs[f'{slot_iface[d_slot]} alpha'], output_node.inputs['阴影'])
+        links.new(input_node.outputs[_get_slot_alpha_name(d_slot)], output_node.inputs['阴影'])
     if normal_slot and normal_fix_node:
         links.new(normal_fix_node.outputs['计算后法线'], output_node.inputs['Normal'])
-        links.new(input_node.outputs[f'{slot_iface[normal_slot]} alpha'], output_node.inputs['Roughness'])
+        links.new(input_node.outputs[_get_slot_alpha_name(normal_slot)], output_node.inputs['Roughness'])
     if separate_node:
         links.new(separate_node.outputs['Green'], output_node.inputs['Metallic'])
         links.new(separate_node.outputs['Blue'], output_node.inputs['战损'])
@@ -349,11 +446,10 @@ def _get_or_create_node_group(ng_name, texture_slots):
     # Pass-through: ps-tN and ps-tN alpha
     for slot_key in sorted_slots:
         iface_key = slot_iface[slot_key]
-        filename = texture_slots[slot_key].get('filename', '')
-        out_key = _get_slot_output_name(slot_key, filename)
-        alpha_out_key = _get_slot_output_name(slot_key, filename, alpha=True)
+        out_key = _get_slot_output_name(slot_key)
+        alpha_out_key = _get_slot_output_name(slot_key, alpha=True)
         links.new(input_node.outputs[iface_key], output_node.inputs[out_key])
-        links.new(input_node.outputs[f'{iface_key} alpha'], output_node.inputs[alpha_out_key])
+        links.new(input_node.outputs[_get_slot_alpha_name(slot_key)], output_node.inputs[alpha_out_key])
 
     # Safety net: remove any output socket that ended up without an internal connection
     for item in list(ng.interface.items_tree):
