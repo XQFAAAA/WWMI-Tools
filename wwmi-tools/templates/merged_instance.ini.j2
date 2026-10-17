@@ -350,17 +350,18 @@ vb4->ElementOffset(ATTRIBUTE, 15) = 24
 {{note("解决单实例时，因闪避受击动作导致模型变换矩阵vs-cb2指针变化，导致1帧重置收集的问题")}}
 {{note("使用上一帧的末尾实例ID")}}
 {{note("显然对于场景多实例时，其中发生实例ID变更时，仍有1帧的瑕疵")}}
+local $l_instance_id = $instance_id
 if #PoolMergedSkeleton[$instance_id] == -1
-    $instance_id = $last_instance_id
+    $l_instance_id = $last_instance_id
 endif
 {{note("Pass merged skeleton of the current instance (identified by $instance_id) to bones data CB slots")}}
 if vs-cb4 == 3381.7777
-    vs-cb4 = ref PoolMergedSkeleton[$instance_id]
+    vs-cb4 = ref PoolMergedSkeleton[$l_instance_id]
     if vs-cb3 == 3381.7777
-        vs-cb3 = ref PoolExtraMergedSkeleton[$instance_id]
+        vs-cb3 = ref PoolExtraMergedSkeleton[$l_instance_id]
     endif
 elif vs-cb3 == 3381.7777
-    vs-cb3 = ref PoolMergedSkeleton[$instance_id]
+    vs-cb3 = ref PoolMergedSkeleton[$l_instance_id]
 endif
 {%- if unrestricted_custom_shape_keys and merged_object.shapekeys.vertex_count > 0 %}
 vb6 = null
