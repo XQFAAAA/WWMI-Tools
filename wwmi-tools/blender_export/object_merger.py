@@ -89,6 +89,9 @@ class ObjectMerger:
     skeleton_type: SkeletonType
     add_missing_vertex_groups: bool = False
     fill_missing_mesh_data: bool = False
+    # If enabled, direct child collections of the Components collection define components
+    # (id is the first number in the collection name), everything else is matched by object name
+    component_from_collections: bool = False
     # Output
     merged_object: MergedObject = field(init=False)
 
@@ -123,17 +126,74 @@ class ObjectMerger:
                 )
             )
 
+    @staticmethod
+    def get_component_id_from_name(object_name, component_pattern):
+        """Component id parsed from the object name, or None if the name has no component markup."""
+        match = component_pattern.findall(object_name.lower())
+        if len(match) == 0:
+            return None
+        return int(match[0])
+
+    @staticmethod
+    def get_component_id_from_collection(collection_name):
+        """Component id taken from the first number in the Components sub-collection name."""
+        match = re.search(r'\d+', collection_name)
+        if match is None:
+            raise ConfigError('component_from_collections',
+                              f'Sub-collection "{collection_name}" of the Components collection must contain a component id in its name (like `C0` or `Component 0`)!')
+        return int(match.group())
+
+    def collect_object_component_ids(self, component_pattern):
+        """Resolve component id of every candidate object, {object: component id or None}.
+
+        Default mode: component id is parsed from the object name.
+        Component By Collection mode: every direct child collection of the Components
+        collection (including its nested collections) defines a component, and all other
+        objects are still matched by their name.
+        """
+        object_component_ids = {}
+
+        if not self.component_from_collections:
+            for obj in get_collection_objects(self.collection, 
+                                              recursive = not self.ignore_nested_collections, 
+                                              skip_hidden_collections = self.ignore_hidden_collections):
+                object_component_ids[obj] = self.get_component_id_from_name(obj.name, component_pattern)
+            return object_component_ids
+
+        for sub_collection in self.collection.children:
+            if self.ignore_hidden_collections and not collection_is_visible(sub_collection):
+                continue
+            component_id = self.get_component_id_from_collection(sub_collection.name)
+            nested_collections = [collection for collection in sub_collection.children_recursive 
+                                  if not (self.ignore_hidden_collections and not collection_is_visible(collection))]
+            for collection in [sub_collection] + nested_collections:
+                for obj in collection.objects:
+                    object_component_ids.setdefault(obj, component_id)
+
+        # Objects outside of component sub-collections (directly in the Components collection
+        # or in nested collections without component id) keep the object name matching
+        for obj in get_collection_objects(self.collection, 
+                                          recursive = True, 
+                                          skip_hidden_collections = self.ignore_hidden_collections):
+            if obj not in object_component_ids:
+                object_component_ids[obj] = self.get_component_id_from_name(obj.name, component_pattern)
+
+        return object_component_ids
+
     def import_objects_from_collection(self):
 
         num_objects = 0
         
         component_pattern = re.compile(r'.*component[_ -]*(\d+).*')
 
+        object_component_ids = self.collect_object_component_ids(component_pattern)
+
         # First pass: collect eligible objects (respecting collection/visibility filters)
         eligible_objects = []
-        for obj in get_collection_objects(self.collection, 
-                                          recursive = not self.ignore_nested_collections, 
-                                          skip_hidden_collections = self.ignore_hidden_collections):
+        for obj, component_id in object_component_ids.items():
+
+            if component_id is None:
+                continue
 
             if self.ignore_hidden_objects and object_is_hidden(obj):
                 continue
@@ -141,11 +201,6 @@ class ObjectMerger:
             if obj.name.startswith('TEMP_'):
                 continue
             
-            match = component_pattern.findall(obj.name.lower())
-            if len(match) == 0:
-                continue
-            component_id = int(match[0])
-
             if component_id >= len(self.components):
                 raise ConfigError('object_source_folder', f'Metadata.json in specified folder is missing Component {component_id}!\nMost likely it contains sources for other object.')
 

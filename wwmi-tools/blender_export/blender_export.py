@@ -279,8 +279,6 @@ class ObjectMergerWWMI(ObjectMerger):
         # same as Slot Complex does for SLOT mode
         is_simple = not (self._slot_complex or (self._texture_mode == 'PATH' and self._hash_complex))
 
-        # Regex for object/material name to extract component id
-        component_pattern = re.compile(r'.*component[_ -]*(\d+).*', re.IGNORECASE)
         # Regex for node group name matching: Cn-ps=xxx
         node_group_pattern = re.compile(r'C(\d+)-ps=([0-9a-fA-F]+)')
 
@@ -293,20 +291,19 @@ class ObjectMergerWWMI(ObjectMerger):
         # Warnings to show after export
         self._slot_warnings = []
 
-        for component in self.components:
+        for component_index, component in enumerate(self.components):
             component_material_collected = False  # For simple mode: only collect first material
 
             for temp_object in component.objects:
                 obj = temp_object.object
 
-                # Get component id from object name
                 obj_name = obj.name
                 if obj_name.startswith('TEMP_'):
                     obj_name = obj_name[5:]
-                obj_match = component_pattern.match(obj_name)
-                if not obj_match:
-                    continue
-                obj_component_id = obj_match.group(1)
+
+                # Component id is defined by the component this object belongs to (parsed from
+                # object name in default mode, from sub-collection name in collection mode)
+                obj_component_id = str(component_index)
 
                 # Use object's component id to look up ShaderTextureUsage.json
                 component_key = f"Component {obj_component_id}"
@@ -351,8 +348,9 @@ class ObjectMergerWWMI(ObjectMerger):
                         ps_value = ng_match.group(2)
 
                         # The node group's C{index} prefix must match the component id
-                        # taken from the object name, so renaming the control object
-                        # (Component 3 / Component 4) selects which node group is
+                        # taken from the object name (or sub-collection name), so renaming
+                        # the control object (Component 3 / Component 4) or moving it to
+                        # another component collection selects which node group is
                         # exported - same behavior for slot and path modes.
                         if int(ng_component_index) != int(obj_component_id):
                             continue
@@ -760,6 +758,7 @@ class ModExporter:
         object_merger = ObjectMergerWWMI(
             extracted_object=self.extracted_object,
             ignore_nested_collections=self.cfg.ignore_nested_collections,
+            component_from_collections=self.cfg.component_from_collections,
             ignore_hidden_collections=self.cfg.ignore_hidden_collections,
             ignore_hidden_objects=self.cfg.ignore_hidden_objects,
             ignore_muted_shape_keys=self.cfg.ignore_muted_shape_keys,

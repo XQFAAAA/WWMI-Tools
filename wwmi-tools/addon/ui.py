@@ -1,4 +1,6 @@
 import subprocess
+import re
+
 import bpy
 
 from textwrap import dedent
@@ -18,6 +20,7 @@ from ..blender_import.blender_import import blender_import
 from ..blender_export.blender_export import blender_export
 from ..blender_export.ini_maker import IniMaker
 from ..extract_frame_data.extract_frame_data import extract_frame_data
+from ..extract_frame_data.metadata_format import read_metadata
 
 from .modules.toolbox.ui import *
 
@@ -173,7 +176,12 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
             layout.row()
 
             if bpy.app.version >= (3, 5):
-                row = layout.row()
+                row = add_row_with_error_handler(layout, cfg, 'component_from_collections')
+                row.prop(cfg, 'component_from_collections')
+                if cfg.component_from_collections:
+                    row.operator(WWMI_AddComponentCollections.bl_idname)
+
+                row = add_row_with_error_handler(layout, cfg, 'ignore_nested_collections')
                 row.prop(cfg, 'ignore_nested_collections')
                 if not cfg.ignore_nested_collections:
                     row.prop(cfg, 'ignore_hidden_collections')
@@ -412,6 +420,99 @@ class WWMI_Import(bpy.types.Operator):
             self.report({'ERROR'}, str(e))
         
         return {'FINISHED'}
+
+
+class WWMI_AddComponentCollections(bpy.types.Operator):
+    """
+    Create sub-collections of Components collection, one per component of imported object
+    """
+    bl_idname = "wwmi_tools.add_component_collections"
+    bl_label = "Add Collections"
+    bl_description = "在 Components 集合下自动创建子集合 `C<序号>`，序号数量由 Object Sources 文件夹中 Metadata.json 的 Component 数量决定（已存在的序号会跳过）。\n" \
+        "根集合下名字以 `C<序号>` 开头（或符合原版 `component N` 规则）的物体，会被移动到对应的集合内"
+
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        cfg = context.scene.wwmi_tools_settings
+
+        clear_error(cfg)
+
+        try:
+            created_count, moved_count, skipped_count = self.add_component_collections(cfg)
+        except ConfigError as e:
+            self.report({'ERROR'}, str(e))
+            return {'FINISHED'}
+
+        message = f'Created {created_count} collection(s), moved {moved_count} object(s)'
+        if skipped_count > 0:
+            self.report({'WARNING'}, message + f', skipped {skipped_count} object(s) with component id out of range')
+        else:
+            self.report({'INFO'}, message)
+
+        return {'FINISHED'}
+
+    @staticmethod
+    def get_component_id_from_object_name(object_name):
+        """Component id from `C<序号>` name prefix or default `component N` markup, or None."""
+        prefix_match = re.match(r'c(\d+)', object_name, re.IGNORECASE)
+        if prefix_match is not None:
+            return int(prefix_match.group(1))
+
+        component_match = re.findall(r'.*component[_ -]*(\d+).*', object_name.lower())
+        if len(component_match) == 0:
+            return None
+        return int(component_match[0])
+
+    def add_component_collections(self, cfg):
+        """Returns (number of created collections, number of moved objects, number of skipped objects)."""
+        components_collection = cfg.component_collection
+        if components_collection is None:
+            raise ConfigError('component_collection', 'Components collection is not specified!')
+
+        if not cfg.object_source_folder:
+            raise ConfigError('object_source_folder', 'Object Sources folder is not specified!')
+        object_source_folder = resolve_path(cfg.object_source_folder)
+        if not object_source_folder.is_dir():
+            raise ConfigError('object_source_folder', f'Object Sources folder "{object_source_folder}" does not exist!')
+
+        try:
+            extracted_object = read_metadata(object_source_folder / 'Metadata.json')
+        except Exception as e:
+            raise ConfigError('object_source_folder', f'Failed to read Metadata.json in Object Sources folder:\n{e}')
+
+        # Sub-collections of Components collection by component id marked in their names
+        component_collections = {}
+        for collection in components_collection.children:
+            match = re.search(r'\d+', collection.name)
+            if match is not None:
+                component_collections.setdefault(int(match.group()), collection)
+
+        created_count = 0
+        for component_id in range(len(extracted_object.components)):
+            if component_id in component_collections:
+                continue
+            collection = new_collection(f'C{component_id}', col_parent=components_collection)
+            collection.color_tag = 'COLOR_05'  # Blue
+            component_collections[component_id] = collection
+            created_count += 1
+
+        # Move objects of Components collection to their component sub-collections
+        moved_count = 0
+        skipped_count = 0
+        for obj in list(components_collection.objects):
+            component_id = self.get_component_id_from_object_name(obj.name)
+            if component_id is None:
+                continue
+            component_collection = component_collections.get(component_id)
+            if component_collection is None:
+                skipped_count += 1
+                continue
+            component_collection.objects.link(obj)
+            components_collection.objects.unlink(obj)
+            moved_count += 1
+
+        return created_count, moved_count, skipped_count
 
 
 class WWMI_Export(bpy.types.Operator):

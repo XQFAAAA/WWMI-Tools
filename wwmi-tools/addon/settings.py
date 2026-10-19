@@ -25,6 +25,14 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         if self.export_textures:
             self.copy_textures = False
 
+    def on_component_from_collections_toggled(self, context):
+        if self.component_from_collections:
+            self.ignore_nested_collections = False
+
+    def on_ignore_nested_collections_toggled(self, context):
+        if self.ignore_nested_collections:
+            self.component_from_collections = False
+
     wwmi_tools_version: bpy.props.StringProperty(
         name = "WWMI Tools Version",
         default = '.'.join(map(str, bl_info["version"]))
@@ -282,6 +290,14 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         name="Ignore Nested Collections",
         description="If enabled, objects inside nested collections inside Components collection won't be exported",
         default=True,
+        update=lambda self, context: self.on_ignore_nested_collections_toggled(context),
+    ) # type: ignore
+
+    component_from_collections: BoolProperty(
+        name="Component By Collection",
+        description="将 Components 集合下的子集合视为 Component：子集合名中的第一个数字即 Component 编号（`C0_帽子` → Component 0、`Component 1` → Component 1），该子集合（含更深层嵌套）下的所有物体都归入此 Component。根集合及非 Component 子集合下的物体仍按物体名匹配。与 `Ignore Nested Collections` 互斥",
+        default=False,
+        update=lambda self, context: self.on_component_from_collections_toggled(context),
     ) # type: ignore
 
     ignore_hidden_collections: BoolProperty(
