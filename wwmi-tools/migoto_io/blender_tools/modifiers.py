@@ -103,6 +103,9 @@ def apply_modifiers_for_object_with_shape_keys(
         # Create temp object for baking.
         temp_obj = obj.copy()
         temp_obj.data = obj.data.copy()
+        # "Show Only Shape Key" 模式下依赖图只会计算当前激活的形态键，导致每个形态键
+        # 烘焙出的网格都等于激活键（通常是 Basis），导出的形态键偏移全部变成 0
+        temp_obj.show_only_shape_key = False
         context.collection.objects.link(temp_obj)
 
         temp_keys = temp_obj.data.shape_keys.key_blocks
