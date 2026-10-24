@@ -90,7 +90,7 @@ class DataModelWWMI(DataModel):
         # Merged instance mods request 16-bit VG ids to build their 16-bit blend indices
         # buffer (Blend_R16.buf) directly from the exported vertex data. They don't use
         # the blend remap system: it works with 8-bit blend indices only and its lookup
-        # tables are only 512 VG ids long, so it fails for mods using more VGs.
+        # tables are only 1024 VG ids long, so it fails for mods using more VGs.
         build_blend_r16 = build_blend_r16 and 'Blend' not in excluded_buffers
         build_blend_remaps = (
             object_index_layout is not None and 'Blend' not in excluded_buffers and not build_blend_r16)
@@ -349,10 +349,10 @@ class DataModelWWMI(DataModel):
             
             remapped_vgs_counts.append(len(obj_vg_ids))
 
-            forward = numpy.zeros(512, dtype=numpy.uint16)
+            forward = numpy.zeros(1024, dtype=numpy.uint16)
             forward[numpy.arange(len(obj_vg_ids))] = obj_vg_ids
 
-            reverse = numpy.zeros(512, dtype=numpy.uint16)
+            reverse = numpy.zeros(1024, dtype=numpy.uint16)
             reverse[obj_vg_ids] = numpy.arange(len(obj_vg_ids))
 
             blend_remap_forward = numpy.concatenate((blend_remap_forward, forward), axis=0)
@@ -376,7 +376,7 @@ class DataModelWWMI(DataModel):
         buffers['BlendRemapReverse'].set_data(blend_remap_reverse)
         buffers['BlendRemapLayout'].set_data(numpy.array(remapped_vgs_counts))
 
-        print(f'Blend remap time: {time.time() - start_time :.3f}s ({int(len(blend_remap_forward) / 512)} remaps)')
+        print(f'Blend remap time: {time.time() - start_time :.3f}s ({int(len(blend_remap_forward) / 1024)} remaps)')
 
         return buffers
 
