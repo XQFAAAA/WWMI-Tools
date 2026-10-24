@@ -140,24 +140,36 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         layout.row().prop(cfg, 'mod_skeleton_type')
         layout.row().prop(cfg, 'texture_mode')
 
-        if cfg.mod_skeleton_type == 'MERGED_INSTANCE':
-            box = layout.box()
-            box.prop(cfg, 'mod_merged_instance_count')
+        # Branch Options drawer: header + content inside one box (whole header row is clickable)
+        box = layout.box()
+        row = box.row()
+        row.prop(cfg, 'show_branch_features', text='Branch Options', emboss=False,
+                 icon='TRIA_DOWN' if cfg.show_branch_features else 'TRIA_RIGHT')
+
+        if cfg.show_branch_features:
+            # Instance Count is always shown, but only active for Merged Instance skeleton
+            row = box.row()
+            row.enabled = cfg.mod_skeleton_type == 'MERGED_INSTANCE'
+            row.prop(cfg, 'mod_merged_instance_count')
 
         if not cfg.partial_export:
 
-            layout.row()
+            if cfg.show_branch_features:
+                if cfg.texture_mode == 'SLOT':
+                    box.row().prop(cfg, 'export_textures')
+                    box.row().prop(cfg, 'slot_complex')
+                    box.row().prop(cfg, 'rabbitfx')
+                elif cfg.texture_mode == 'PATH':
+                    box.row().prop(cfg, 'export_textures')
+                    box.row().prop(cfg, 'hash_complex')
+                    box.row().prop(cfg, 'max_ps_t')
 
-            if cfg.texture_mode == 'SLOT':
-                box = layout.box()
-                box.prop(cfg, 'export_textures')
-                box.prop(cfg, 'slot_complex')
-                box.prop(cfg, 'rabbitfx')
-            elif cfg.texture_mode == 'PATH':
-                box = layout.box()
-                box.prop(cfg, 'export_textures')
-                box.prop(cfg, 'hash_complex')
-                box.prop(cfg, 'max_ps_t')
+                row = add_row_with_error_handler(box, cfg, 'component_from_collections')
+                row.prop(cfg, 'component_from_collections')
+                if cfg.component_from_collections:
+                    row.operator(WWMI_AddComponentCollections.bl_idname)
+
+                box.row().prop(cfg, 'use_list_gui')
 
             layout.separator()
 
@@ -176,11 +188,6 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
             layout.row()
 
             if bpy.app.version >= (3, 5):
-                row = add_row_with_error_handler(layout, cfg, 'component_from_collections')
-                row.prop(cfg, 'component_from_collections')
-                if cfg.component_from_collections:
-                    row.operator(WWMI_AddComponentCollections.bl_idname)
-
                 row = add_row_with_error_handler(layout, cfg, 'ignore_nested_collections')
                 row.prop(cfg, 'ignore_nested_collections')
                 if not cfg.ignore_nested_collections:

@@ -206,7 +206,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
             ('SLOT', 'Slot', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
             ('PATH', 'Path(Hash)', 'Reference textures by hash with asset_path/asset_name matching\nRequires ShaderTextureUsage.json\n使用资源路径名称匹配纹理'),
         ],
-        default='HASH',
+        default='SLOT',
         update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,
     ) # type: ignore
 
@@ -237,7 +237,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
             ('MERGED_INSTANCE', 'Merged Instance', 'Merged skeleton with support for multiple instances of the same object on screen (uses 16-bit blend indices, export Blend_R16.buf)'),
             ('COMPONENT', 'Per-Component', 'Mesh with this skeleton should have its Vertex Groups split into per-component lists.'),
         ],
-        default=0,
+        default='MERGED_INSTANCE',
     ) # type: ignore
 
     mod_merged_instance_count: IntProperty(
@@ -271,6 +271,13 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     rabbitfx: BoolProperty(
         name="RabbitFX",
         description="使用RabbitFX中的正则表达式filter_index 1718.1，当然需要安装RabbitFX mod",
+        default=False,
+    ) # type: ignore
+
+    # UI state: Branch Options drawer (instance count / texture export options / component by collection / List GUI)
+    show_branch_features: BoolProperty(
+        name="Show Branch Features",
+        description="展开「Branch Options/分支选项」抽屉（实例数量、导出纹理等分支相关设置）",
         default=False,
     ) # type: ignore
 
@@ -473,6 +480,8 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         name="List GUI",
         description="Generate GUI folder with ListGUI.ini, UI images and hlsl shader for in-game object toggle menu",
         default=False,
+        # One-way sync: toggling List GUI also toggles Use Ini Toggles (not vice versa)
+        update=lambda self, context: setattr(self, 'use_ini_toggles', self.use_list_gui),
     ) # type: ignore
 
     ini_toggles: bpy.props.PointerProperty(

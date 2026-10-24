@@ -925,14 +925,6 @@ class ModExporter:
             if self.cfg.write_ini:
                 self.ini.write(ini_path=self.mod_output_folder / 'mod.ini')
                 # self.ini.write(ini_path=self.mod_output_folder / 'mod_old.ini', ini_string=self.ini.build_old())
-                # Ship the custom Skeleton Merger with doubled skeleton constant buffer
-                # array, needed by merged instance mods with more than 512 merged bones
-                if self.cfg.mod_skeleton_type == 'MERGED_INSTANCE' and self.merged_object.vg_count > 512:
-                    shaders_folder = self.mod_output_folder / 'Shaders'
-                    shaders_folder.mkdir(parents=True, exist_ok=True)
-                    shader_src = Path(os.path.realpath(__file__)).parent.parent / 'templates' / 'SkeletonMerger1024.hlsl'
-                    print('Copying SkeletonMerger1024.hlsl...')
-                    shutil.copy(shader_src, shaders_folder / 'SkeletonMerger1024.hlsl')
 
             # Write ListGUI
             if self.cfg.use_list_gui:
