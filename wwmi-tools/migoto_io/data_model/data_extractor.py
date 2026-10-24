@@ -29,7 +29,8 @@ class BlenderDataExtractor:
                  semantic_converters: Dict[AbstractSemantic, List[callable]], 
                  format_converters: Dict[AbstractSemantic, List[callable]],
                  vertex_ids_cache: Optional[numpy.ndarray] = None,
-                 flip_winding= False) -> Tuple[numpy.ndarray, NumpyBuffer]:
+                 flip_winding= False,
+                 tangent_uv_layer: Optional[str] = None) -> Tuple[numpy.ndarray, NumpyBuffer]:
         
         self.blender_data_formats = blender_data_formats
         
@@ -46,7 +47,7 @@ class BlenderDataExtractor:
 
         if vertex_ids_cache is None:
             # Extract requested data from blender loop vertices
-            loop_data, index_data = self.get_loop_data(mesh, proxy_layout, flip_winding=flip_winding, dedupe = True)
+            loop_data, index_data = self.get_loop_data(mesh, proxy_layout, flip_winding=flip_winding, dedupe = True, tangent_uv_layer=tangent_uv_layer)
             vertex_ids = loop_data.get_field(AbstractSemantic(Semantic.VertexId).get_name())
         else:
             loop_data, index_data = None, None
@@ -144,7 +145,8 @@ class BlenderDataExtractor:
                       mesh: bpy.types.Mesh, 
                       proxy_layout: BufferLayout, 
                       flip_winding = False, 
-                      dedupe = False) -> Tuple[NumpyBuffer, numpy.ndarray]:
+                      dedupe = False,
+                      tangent_uv_layer: Optional[str] = None) -> Tuple[NumpyBuffer, numpy.ndarray]:
         
         start_time = time.time()
 
@@ -157,7 +159,10 @@ class BlenderDataExtractor:
                 layout.add_element(buffer_semantic)
 
         # Calculate data for Semantic.Tangent
-        mesh.calc_tangents()
+        if tangent_uv_layer and mesh.uv_layers.get(tangent_uv_layer, None) is not None:
+            mesh.calc_tangents(uvmap=tangent_uv_layer)
+        else:
+            mesh.calc_tangents()
 
         # Initialize loop data storage
         size = len(mesh.loops)

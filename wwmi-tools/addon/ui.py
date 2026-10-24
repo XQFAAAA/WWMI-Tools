@@ -152,6 +152,8 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
             row.enabled = cfg.mod_skeleton_type == 'MERGED_INSTANCE'
             row.prop(cfg, 'mod_merged_instance_count')
 
+            box.row().prop(cfg, 'tangent_source')
+
         if not cfg.partial_export:
 
             if cfg.show_branch_features:

@@ -7,7 +7,7 @@ import subprocess
 
 from ..libs.unidecode import unidecode
 
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 from dataclasses import dataclass, field
 
 from ..addon.exceptions import ConfigError
@@ -24,6 +24,7 @@ from ..migoto_io.data_model.dxgi_format import DXGIFormatIndex
 from ..extract_frame_data.metadata_format import read_metadata, ExtractedObject
 
 from .object_merger import ObjectMerger, SkeletonType, MergedObject, MergedObjectShapeKeysBatch, TempObject
+from .tangent_uv_detector import detect_tangent_uv_layers
 from .metadata_collector import Version, ModInfo
 from .texture_collector import Texture, get_textures
 from .ini_maker import IniMaker
@@ -55,6 +56,10 @@ class Fatal(Exception): pass
 data_models: Dict[str, DataModel] = {
     'WWMI': DataModelWWMI(),
 }
+
+# Temporary UV layer holding each object's UV before join, used to
+# calculate per-object tangents (Tangent = Active UV / Object Sources modes)
+TANGENT_UV_LAYER_NAME = 'TANGENT_UV'
 
 
 class ObjectMergerWWMI(ObjectMerger):
@@ -626,6 +631,10 @@ class ModExporter:
         self._shader_texture_usage = None
         self._menu_switches = []
 
+        # {component_id: uv_layer_name} detected from the object sources VB tangents
+        # (Tangent = Object Sources mode only)
+        self.tangent_uv_map = None
+
         self.object_source_folder = resolve_path(cfg.object_source_folder)
         self.mod_output_folder = resolve_path(cfg.mod_output_folder)
         self.meshes_path = self.mod_output_folder / 'Meshes'
@@ -651,6 +660,12 @@ class ModExporter:
             raise ConfigError('object_source_folder', 'Specified folder is missing Metadata.json!')
         except Exception as e:
             raise ConfigError('object_source_folder', f'Failed to load Metadata.json:\n{e}')
+
+        if self.cfg.tangent_source == 'OBJECT_SOURCES':
+            try:
+                self.tangent_uv_map = self.get_tangent_uv_map()
+            except Exception as e:
+                raise ConfigError('object_source_folder', f'Failed to detect tangent UV layers:\n{e}')
 
         user_context = get_user_context(self.context)
 
@@ -749,6 +764,32 @@ class ModExporter:
                 dicts.append(json.load(f))
         return self._merge_shader_texture_usage(dicts)
 
+    def get_tangent_uv_map(self) -> Dict[int, str]:
+        """Detect the UV layer each Component's VB tangents were baked from.
+
+        Results are cached in scene settings by Object Sources folder path, so the
+        per-component check is only performed once per folder and project.
+        """
+        settings = self.context.scene.wwmi_tools_settings
+        cache_key = str(self.object_source_folder)
+
+        cache = {}
+        if settings.tangent_uv_cache:
+            try:
+                cache = json.loads(settings.tangent_uv_cache)
+            except json.JSONDecodeError:
+                cache = {}
+
+        if cache_key in cache:
+            print(f'Tangent UV layers loaded from cache for `{cache_key}`')
+            return {int(component_id): uv_name for component_id, uv_name in cache[cache_key].items()}
+
+        print(f'Detecting tangent UV layers for `{cache_key}`...')
+        detected = detect_tangent_uv_layers(self.object_source_folder)
+        cache[cache_key] = {str(component_id): uv_name for component_id, uv_name in detected.items()}
+        settings.tangent_uv_cache = json.dumps(cache)
+        return detected
+
     def build_merged_object(self):
         start_time = time.time()
         
@@ -771,6 +812,8 @@ class ModExporter:
             skeleton_type=SkeletonType.Merged if self.cfg.mod_skeleton_type in ('MERGED', 'MERGED_INSTANCE') else SkeletonType.PerComponent,
             fill_missing_mesh_data=self.cfg.fill_missing_mesh_data,
             add_missing_vertex_groups=self.cfg.add_missing_vertex_groups,
+            tangent_uv_layer=TANGENT_UV_LAYER_NAME if self.cfg.tangent_source in ('ACTIVE_UV', 'OBJECT_SOURCES') else None,
+            tangent_uv_map=self.tangent_uv_map,
             texture_mode=self.cfg.texture_mode,
             slot_complex=self.cfg.slot_complex,
             hash_complex=self.cfg.hash_complex,
@@ -816,6 +859,9 @@ class ModExporter:
             mesh_rotation=(0, 0, 180),
             object_index_layout=index_layout,
             build_blend_r16=self.cfg.mod_skeleton_type == 'MERGED_INSTANCE',
+            tangent_uv_layer=(TANGENT_UV_LAYER_NAME
+                              if self.cfg.tangent_source in ('ACTIVE_UV', 'OBJECT_SOURCES')
+                              else 'TEXCOORD.xy'),
         )
 
         self.merged_object.vertex_count = vertex_count

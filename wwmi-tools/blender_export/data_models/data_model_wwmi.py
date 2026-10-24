@@ -82,6 +82,7 @@ class DataModelWWMI(DataModel):
             mesh_rotation: Tuple[float] = (0.0, 0.0, 0.0),
             object_index_layout: Optional[List[int]] = None,
             build_blend_r16: bool = False,
+            tangent_uv_layer: Optional[str] = None,
         ) -> Tuple[Dict[str, NumpyBuffer], int, Optional[List[int]]]:
 
         if buffers_format is None:
@@ -123,6 +124,7 @@ class DataModelWWMI(DataModel):
             mesh_scale=mesh_scale,
             mesh_rotation=mesh_rotation,
             cache_index_data=build_blend_remaps,
+            tangent_uv_layer=tangent_uv_layer,
         )
 
         buffers = self.build_buffers(index_data, vertex_buffer, excluded_buffers, buffers_format)

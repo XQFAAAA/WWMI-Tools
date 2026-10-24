@@ -125,7 +125,8 @@ class DataModel:
             mirror_mesh: bool = False,
             mesh_scale: float = 1.0,
             mesh_rotation: Tuple[float] = (0.0, 0.0, 0.0),
-            object_index_layout: Optional[List[int]] = None
+            object_index_layout: Optional[List[int]] = None,
+            tangent_uv_layer: Optional[str] = None,
         ) -> Tuple[Dict[str, NumpyBuffer], int, Optional[List[int]]]:
 
         if buffers_format is None:
@@ -140,6 +141,7 @@ class DataModel:
             mirror_mesh=mirror_mesh,
             mesh_scale=mesh_scale,
             mesh_rotation=mesh_rotation,
+            tangent_uv_layer=tangent_uv_layer,
         )
 
         buffers = self.build_buffers(index_data, vertex_buffer, excluded_buffers, buffers_format)
@@ -190,7 +192,8 @@ class DataModel:
             mirror_mesh: bool = False,
             mesh_scale: float = 1.0,
             mesh_rotation: Tuple[float] = (0.0, 0.0, 0.0),
-            cache_index_data: bool = False
+            cache_index_data: bool = False,
+            tangent_uv_layer: Optional[str] = None,
         ):
 
         if self.data_extractor is None:
@@ -206,6 +209,7 @@ class DataModel:
             mesh_scale=mesh_scale,
             mesh_rotation=mesh_rotation,
             cache_index_data=cache_index_data,
+            tangent_uv_layer=tangent_uv_layer,
         )
         return index_data, vertex_buffer
 
@@ -247,6 +251,7 @@ class DataModel:
             mesh_scale: float = 1.0,
             mesh_rotation: Tuple[float] = (0.0, 0.0, 0.0),
             cache_index_data: bool = False,
+            tangent_uv_layer: Optional[str] = None,
         ):
         
         vertex_ids_cache, cache_vertex_ids = None, False
@@ -307,7 +312,7 @@ class DataModel:
 
         # If vertex_ids_cache is *not* None, get_data method will skip loop data fetching
         index_buffer, vertex_buffer = self.data_extractor.get_data(
-            mesh, export_layout, self.blender_data_formats, semantic_converters, format_converters, vertex_ids_cache, flip_winding=flip_winding)
+            mesh, export_layout, self.blender_data_formats, semantic_converters, format_converters, vertex_ids_cache, flip_winding=flip_winding, tangent_uv_layer=tangent_uv_layer)
 
         if cache_vertex_ids:
             # As vertex_ids_cache is None, get_data fetched loop data for us and we can cache vertex ids

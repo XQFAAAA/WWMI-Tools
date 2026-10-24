@@ -1,7 +1,7 @@
 import re
 import bpy
 
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 from dataclasses import dataclass, field
 from enum import Enum
 from textwrap import dedent
@@ -11,6 +11,7 @@ from ..addon.exceptions import ConfigError
 from ..migoto_io.blender_interface.collections import *
 from ..migoto_io.blender_interface.objects import *
 
+from ..migoto_io.blender_tools.meshes import create_uv_layer, copy_uv_layer
 from ..migoto_io.blender_tools.modifiers import apply_modifiers_for_object_with_shape_keys
 from ..migoto_io.blender_tools.vertex_groups import fill_gaps_in_vertex_groups
 
@@ -92,6 +93,12 @@ class ObjectMerger:
     # If enabled, direct child collections of the Components collection define components
     # (id is the first number in the collection name), everything else is matched by object name
     component_from_collections: bool = False
+    # Name of the temporary UV layer that holds each object's active UV before join
+    # (used to calculate per-object tangents on the merged mesh)
+    tangent_uv_layer: Optional[str] = None
+    # Optional per-component UV layer name to bake into `tangent_uv_layer` instead of
+    # the object's active UV ({component_id: uv_layer_name})
+    tangent_uv_map: Optional[Dict[int, str]] = None
     # Output
     merged_object: MergedObject = field(init=False)
 
@@ -107,6 +114,7 @@ class ObjectMerger:
                 self.fill_missing_temp_objects_data()
             self.finalize_temp_objects_data()
             self.finalize_temp_objects_stats()
+            self.prepare_tangent_uv_layer()
             self.pre_join_objects()
             self.build_merged_object()
         except Exception as e:
@@ -306,6 +314,35 @@ class ObjectMerger:
         for component_id, component in enumerate(self.components):
             for temp_object in component.objects:
                 remove_mesh(temp_object.object.data)
+
+    def prepare_tangent_uv_layer(self):
+        """Copy the chosen UV layer of each TEMP object into a shared temporary UV layer.
+
+        After join there is only one mesh and one set of UV layers, so per-object
+        tangent bases (each object calculated from its own UV) can only be
+        preserved by baking the chosen UVs into a common layer before joining.
+        The source UV layer is taken from `tangent_uv_map` by component id when
+        provided, otherwise the object's active UV is used.
+        """
+        if not self.tangent_uv_layer:
+            return
+        for component_id, component in enumerate(self.components):
+            source_uv_name = None
+            if self.tangent_uv_map is not None:
+                source_uv_name = self.tangent_uv_map.get(component_id, 'TEXCOORD.xy')
+            for temp_object in component.objects:
+                mesh = temp_object.object.data
+                # Meshes without faces have no loops, and uv_layers.new() returns None for them
+                if len(mesh.polygons) == 0:
+                    continue
+                source_uv = mesh.uv_layers.get(source_uv_name, None) if source_uv_name else mesh.uv_layers.active
+                if source_uv is None:
+                    # Requested UV layer is missing, fall back to the active one
+                    source_uv = mesh.uv_layers.active
+                if source_uv is None:
+                    create_uv_layer(mesh, self.tangent_uv_layer)
+                elif source_uv.name != self.tangent_uv_layer:
+                    copy_uv_layer(mesh, source_uv.name, self.tangent_uv_layer)
 
     def pre_join_objects(self):
         """Hook called before joining TEMP objects. Override in subclasses to collect per-object data."""

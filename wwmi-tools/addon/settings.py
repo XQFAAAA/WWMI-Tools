@@ -254,6 +254,23 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         default=False,
     ) # type: ignore
 
+    tangent_source: bpy.props.EnumProperty(
+        name="Tangent",
+        description="用于计算切线的 UV 层",
+        items=[
+            ('DEFAULT', 'Default', '从 TEXCOORD.xy 生成切线'),
+            ('ACTIVE_UV', 'Active UV', '合并前逐物体将各自的活动 UV 层复制到临时层，再按临时层生成切线'),
+            ('OBJECT_SOURCES', 'Object Sources', '逐个 Component 校验原始 VB 中的切线数据，反推其使用的 UV 层；结果按 Object Sources 缓存'),
+        ],
+        default='DEFAULT',
+    ) # type: ignore
+
+    tangent_uv_cache: bpy.props.StringProperty(
+        name="Tangent UV Cache",
+        description="Cache of detected tangent source UV layers per Object Sources folder (JSON)",
+        default="",
+    ) # type: ignore
+
     copy_textures: BoolProperty(
         name="Copy Textures",
         description="Copy texture files to export folder",
