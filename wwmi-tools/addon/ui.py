@@ -160,7 +160,6 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
                 if cfg.texture_mode == 'SLOT':
                     box.row().prop(cfg, 'export_textures')
                     box.row().prop(cfg, 'slot_complex')
-                    box.row().prop(cfg, 'rabbitfx')
                 elif cfg.texture_mode == 'PATH':
                     box.row().prop(cfg, 'export_textures')
                     box.row().prop(cfg, 'hash_complex')

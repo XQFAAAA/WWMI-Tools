@@ -262,7 +262,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
             ('ACTIVE_UV', 'Active UV', '合并前逐物体将各自的活动 UV 层复制到临时层，再按临时层生成切线'),
             ('OBJECT_SOURCES', 'Object Sources', '逐个 Component 校验原始 VB 中的切线数据，反推其使用的 UV 层；结果按 Object Sources 缓存'),
         ],
-        default='DEFAULT',
+        default='OBJECT_SOURCES',
     ) # type: ignore
 
     tangent_uv_cache: bpy.props.StringProperty(
@@ -283,12 +283,6 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         description="Export textures in slot mode (convert non-DDS textures to DDS format)",
         default=True,
         update=lambda self, context: self.on_export_textures_toggled(context),
-    ) # type: ignore
-
-    rabbitfx: BoolProperty(
-        name="RabbitFX",
-        description="使用RabbitFX中的正则表达式filter_index 1718.1，当然需要安装RabbitFX mod",
-        default=False,
     ) # type: ignore
 
     # UI state: Branch Options drawer (instance count / texture export options / component by collection / List GUI)
