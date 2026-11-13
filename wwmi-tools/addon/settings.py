@@ -113,18 +113,6 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         default=False,
     ) # type: ignore
 
-    skip_slot_residual_textures: BoolProperty(
-        name="Textures Filtering: Skip Dirty Slot",
-        description="只保留日志中PSSetShaderResources显式绑定的贴图",
-        default=True,
-    ) # type: ignore
-
-    texture_asset_manifest: BoolProperty(
-        name="TextureAssetManifest",
-        description="从Frame Dump文件夹读取TextureAssetManifest.jsonl，使用资源路径名称作为贴图文件名，并在ShaderTextureUsage.json中添加asset_path信息",
-        default=True,
-    ) # type: ignore
-
     extract_output_folder: StringProperty(
         name="Output Folder",
         description="Extracted WWMI objects export directory",
@@ -204,7 +192,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         items=[
             ('HASH', 'Hash', 'Reference textures by hash (default 3DMigoto style)'),
             ('SLOT', 'Slot', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
-            ('PATH', 'Path(Hash)', 'Reference textures by hash with asset_path/asset_name matching\nRequires ShaderTextureUsage.json\n使用资源路径名称匹配纹理'),
+            ('PATH', 'Path(Hash)', 'Reference textures by hash\nRequires ShaderTextureUsage.json\n按槽位记录的 hash 匹配纹理'),
         ],
         default='SLOT',
         update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,

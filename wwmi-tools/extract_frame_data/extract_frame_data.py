@@ -254,37 +254,10 @@ def get_texture_info(texdiag_path, texture_path):
         return {}
 
 
-def load_texture_asset_manifest(manifest_path):
-    """Load TextureAssetManifest.jsonl and return {resource_hash: asset_path} mapping."""
-    if not manifest_path.is_file():
-        return {}
-    mapping = {}
-    with open(manifest_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                entry = json.loads(line)
-                resource_hash = entry.get('resource_hash', '')
-                asset_path = entry.get('asset_path', '')
-                if resource_hash and asset_path:
-                    mapping[resource_hash] = asset_path
-            except json.JSONDecodeError:
-                continue
-    return mapping
-
-
-def write_objects(output_directory, dump_dir_path, objects: Dict[str, ObjectData], allow_missing_shapekeys = False, use_asset_manifest = False):
+def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missing_shapekeys = False):
     output_directory = Path(output_directory)
 
     output_directory.mkdir(parents=True, exist_ok=True)
-
-    # Load TextureAssetManifest if enabled
-    asset_manifest = {}
-    if use_asset_manifest:
-        manifest_path = Path(dump_dir_path) / 'TextureAssetManifest.jsonl'
-        asset_manifest = load_texture_asset_manifest(manifest_path)
 
     for object_hash, object_data in objects.items():
         object_name = object_hash
@@ -353,14 +326,7 @@ def write_objects(output_directory, dump_dir_path, objects: Dict[str, ObjectData
             path = Path(texture['path'])
             components = '-'.join(sorted(list(set(texture['components']))))
 
-            # Use asset name as filename when manifest is enabled and hash is found
-            asset_path = asset_manifest.get(texture_hash, '') if use_asset_manifest else ''
-            if asset_path:
-                # Extract name after the last '.' in asset_path (UE object name)
-                asset_name = asset_path.rsplit('.', 1)[-1]
-                filename = f'{asset_name}{path.suffix}'
-            else:
-                filename = f'Components-{components} t={texture_hash}{path.suffix}'
+            filename = f'Components-{components} t={texture_hash}{path.suffix}'
 
             shutil.copyfile(path, object_directory / filename)
 
@@ -372,9 +338,6 @@ def write_objects(output_directory, dump_dir_path, objects: Dict[str, ObjectData
                 'width': info.get('width', 0),
                 'height': info.get('height', 0),
             }
-            if asset_path:
-                entry['asset_path'] = asset_path
-                entry['asset_name'] = asset_name
             texture_metadata[texture_hash] = entry
 
         # Transform shader_texture_usage values from hash strings to rich objects
@@ -430,7 +393,6 @@ def extract_frame_data(cfg):
     # Extract mesh objects data from data view
     data_extractor = DataExtractor(
         call_branches=frame_data.call_branches,
-        skip_slot_residual_textures=cfg.skip_slot_residual_textures,
     )
 
     # Build shape keys index from byte buffers
@@ -458,7 +420,7 @@ def extract_frame_data(cfg):
         )
     )
     
-    write_objects(resolve_path(cfg.extract_output_folder), dump_path, output_builder.objects, cfg.allow_missing_shapekeys, cfg.texture_asset_manifest)
+    write_objects(resolve_path(cfg.extract_output_folder), output_builder.objects, cfg.allow_missing_shapekeys)
 
     print(f"Execution time: %s seconds" % (time.time() - start_time))
 

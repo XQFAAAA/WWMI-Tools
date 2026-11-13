@@ -202,8 +202,6 @@ class ObjectMergerWWMI(ObjectMerger):
                     'dds_export_name': dds_export_name,
                     'resource_name': resource_name,
                     'hash': slot_data_entry.get('hash', ''),
-                    'asset_path': slot_data_entry.get('asset_path', ''),
-                    'asset_name': slot_data_entry.get('asset_name', ''),
                     'width': slot_data_entry.get('width', 0),
                     'height': slot_data_entry.get('height', 0),
                 }
@@ -432,8 +430,6 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'dds_export_name': switch['input_dds'][0],
                                     'resource_name': switch['identifier'],
                                     'hash': slot_data_entry.get('hash', ''),
-                                    'asset_path': '',
-                                    'asset_name': '',
                                     'width': 0,
                                     'height': 0,
                                 })
@@ -497,9 +493,6 @@ class ObjectMergerWWMI(ObjectMerger):
                                 resource_name = sanitized
 
                             slot_data_entry = slot_data.get(base_input_name, {})
-                            asset_path = slot_data_entry.get('asset_path', '')
-                            asset_name = slot_data_entry.get('asset_name', '') or (
-                                asset_path.rsplit('.', 1)[-1] if asset_path else '')
                             input_info = {
                                 'slot': base_input_name,
                                 'format': format_enum,
@@ -507,8 +500,6 @@ class ObjectMergerWWMI(ObjectMerger):
                                 'dds_export_name': dds_export_name,
                                 'resource_name': resource_name,
                                 'hash': slot_data_entry.get('hash', ''),
-                                'asset_path': asset_path,
-                                'asset_name': asset_name,
                                 'width': slot_data_entry.get('width', 0),
                                 'height': slot_data_entry.get('height', 0),
                             }
@@ -521,8 +512,6 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'dds_export_name': dds_export_name,
                                     'resource_name': resource_name,
                                     'hash': slot_data_entry.get('hash', ''),
-                                    'asset_path': asset_path,
-                                    'asset_name': asset_name,
                                     'width': slot_data_entry.get('width', 0),
                                     'height': slot_data_entry.get('height', 0),
                                 }
@@ -981,7 +970,7 @@ class ModExporter:
     def build_path_textures(self):
         """Build the ResourceTexture section data for PATH mode.
 
-        Textures are collected from node groups, hash/asset info read from
+        Textures are collected from node groups, hash info read from
         ShaderTextureUsage.json per slot.
         """
         result = []

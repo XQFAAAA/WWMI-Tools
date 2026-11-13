@@ -56,7 +56,6 @@ class DrawData:
 class DataExtractor:
     # Input
     call_branches: Dict[str, ShaderCallBranch]
-    skip_slot_residual_textures: bool = False
     # Output
     shader_hashes: Dict[str, str] = field(init=False)
     shape_key_data: Dict[str, ShapeKeyData] = field(init=False)
@@ -217,25 +216,10 @@ class DataExtractor:
                         texcoord_buffer = ByteBuffer(layout=texcoord_buffer.layout)
 
                 textures = []
-                # 开启去除slot残留时，只保留该 call 中 PSSetShaderResources 显式绑定的槽位
-                # 若绑定序列存在"空洞"（如 0,1,2,4,5,6 缺少 3），则补充空洞槽位——
-                # 它们来自前次绘制但着色器确实在使用，只有超出最大绑定槽位的才是真正残留
-                if self.skip_slot_residual_textures:
-                    bound = branch_call.call.ps_texture_slots
-                    if bound:
-                        max_slot = max(bound)
-                        # HLSL 按 t0 起步连续分配，填补 0~max 之间的空洞
-                        fresh_slots = {s for s in range(max_slot + 1)}
-                    else:
-                        fresh_slots = set()
-                else:
-                    fresh_slots = None
                 for texture_id in range(16):
                     texture = branch_call.resources.get(f'TEXTURE_{texture_id}', None)
                     if texture is None:
                         continue
-                    if fresh_slots is not None and texture_id not in fresh_slots:
-                        continue  # 脏状态残留槽位，跳过
                     textures.append(texture)
 
                 draw_data = DrawData(

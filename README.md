@@ -14,7 +14,7 @@
 
 | 环节 | xqfa 分支新增内容 |
 | --- | --- |
-| 帧提取 | 导出 `ShaderTextureUsage.json`；`Skip Dirty Slot` 过滤；`TextureAssetManifest` 资源路径命名；texdiag 读取贴图格式与尺寸 |
+| 帧提取 | 导出 `ShaderTextureUsage.json`；texdiag 读取贴图格式与尺寸 |
 | 对象导入 | 依据 `ShaderTextureUsage.json` 自动创建材质与节点组，并按 `D / N / FTM / RGID / HN` 角色自动连线 |
 | 导出·纹理 | 新增 `Slot` 与 `Path(Hash)` 两种纹理模式；`Slot Complex`、`Hash Complex`、`Max PS-T`；`Export Textures` 自动转 DDS |
 | 导出·骨架 | 新增 `Merged Instance` 骨架与 `Instance Count`；16-bit Blend Buffer；最多 1024 根骨骼，无需额外 shader |
@@ -26,7 +26,7 @@
 ### 默认值差异
 
 - 导出纹理模式默认 `Slot`，骨架默认 `Merged Instance`
-- `Skip Dirty Slot`、`TextureAssetManifest`、`Mirror Mesh`、`Export Textures` 默认开启
+- `Mirror Mesh`、`Export Textures` 默认开启
 - `Skip Small`、`Skip .jpg`、`Skip Known Cubemaps`、`Skip Empty Vertex Groups`、`Add Missing Vertex Groups`、`Fill Missing Mesh Data` 默认关闭
 
 ---
@@ -38,24 +38,10 @@
 每次提取都会在对象目录额外写出 `ShaderTextureUsage.json`，按以下层级记录“某个 Component 的某个 VS/PS 组合在各 `ps-t` 槽位用了哪张贴图”：
 
 ```
-Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, format, width, height, asset_path?}
+Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, format, width, height}
 ```
 
 导入时用它生成材质节点组，导出时用它判定槽位格式、贴图角色与 DDS 目标格式。
-
-### Textures Filtering: Skip Dirty Slot
-
-默认开启。只保留日志中由 `PSSetShaderResources` **显式绑定**的贴图，过滤掉因资源懒更新残留在槽位上的无效贴图。若你确实需要这些残留贴图，可以关闭，但通常不必要。
-
-### TextureAssetManifest
-
-开启后会读取 Frame Dump 目录下的 `TextureAssetManifest.jsonl`：
-
-- 贴图文件名改为资源路径中的 UE 对象名（如 `T_xxx_D.dds`）
-- `ShaderTextureUsage.json` 中额外写入 `asset_path` / `asset_name`
-- 找不到清单条目时，回退为 `Components-<组件号> t=<hash>.<ext>`
-
-该文件由配合 [WWMI-AssetPath-DLL-Core](https://github.com/visaokc/WWMI-AssetPath-DLL-Core) 的 dump 产生，使用前请确认已安装对应 DLL 版本。
 
 ### 贴图元数据
 
@@ -225,7 +211,6 @@ GUI/
 - 上游仓库：[SpectrumQT/WWMI-Tools](https://github.com/SpectrumQT/WWMI-Tools)
 - WWMI：[SpectrumQT/WWMI](https://github.com/SpectrumQT/WWMI)
 - XXMI Launcher：[SpectrumQT/XXMI-Launcher](https://github.com/SpectrumQT/XXMI-Launcher)
-- 贴图资源路径 DLL：[visaokc/WWMI-AssetPath-DLL-Core](https://github.com/visaokc/WWMI-AssetPath-DLL-Core)
 - 现成模型资源：[WWMI Assets](https://github.com/SpectrumQT/WWMI-Assets)
 
 ## License
