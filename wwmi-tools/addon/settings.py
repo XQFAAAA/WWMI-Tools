@@ -193,9 +193,10 @@ class WWMI_Settings(bpy.types.PropertyGroup):
             ('HASH', 'Hash', 'Reference textures by hash (default 3DMigoto style)'),
             ('SLOT', 'Slot (NodeGroup)', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
             ('HASH_NG', 'Hash (NodeGroup)', 'Reference textures by hash\nRequires ShaderTextureUsage.json\n按槽位记录的 hash 匹配纹理'),
+            ('DHASH_NG', 'dHash (NodeGroup)', 'Requires ShaderTextureUsage.json with dhash data (new XXMI kernel)\nMatches texture slots by content dhash via ps-t[Filter] slot scan\n(SnapshotInitialTextures/RestoreInitialTextures)\n按贴图内容 dhash 匹配槽位（需新版 XXMI 内核支持）'),
         ],
         default='SLOT',
-        update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,
+        update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode in ('SLOT', 'DHASH_NG') else None,
     ) # type: ignore
 
     max_ps_t: IntProperty(
@@ -259,6 +260,12 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         description="Export textures in slot mode (convert non-DDS textures to DDS format)",
         default=True,
         update=lambda self, context: self.on_export_textures_toggled(context),
+    ) # type: ignore
+
+    not_origin: BoolProperty(
+        name="Not Origin",
+        description="dHash mode: skip textures from the Object Sources folder\n源文件夹（Object Sources）中的原始纹理不导出也不写入 ini",
+        default=False,
     ) # type: ignore
 
     # UI state: Branch Options drawer (instance count / texture export options / component by collection / List GUI)

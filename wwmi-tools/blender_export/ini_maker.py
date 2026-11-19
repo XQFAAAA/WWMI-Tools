@@ -49,6 +49,7 @@ class IniMaker:
     hash_ng_textures: list = None
     hash_ng_overrides: list = None
     hash_ng: dict = None
+    dhash_ng: dict = None
     slot_groups: dict = None
     menu_switches: list = field(default_factory=list)
     formatter: TextFormatter = TextFormatter()

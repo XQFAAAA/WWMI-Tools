@@ -200,6 +200,7 @@ class ObjectMergerWWMI(ObjectMerger):
                     'dds_export_name': dds_export_name,
                     'resource_name': resource_name,
                     'hash': slot_data_entry.get('hash', ''),
+                    'dhash': slot_data_entry.get('dhash', ''),
                     'width': slot_data_entry.get('width', 0),
                     'height': slot_data_entry.get('height', 0),
                 }
@@ -223,9 +224,9 @@ class ObjectMergerWWMI(ObjectMerger):
 
     def finalize_temp_objects_geometry(self):
         super().finalize_temp_objects_geometry()
-        # SLOT/HASH_NG modes separate multi-material objects before merging so each
+        # SLOT/HASH_NG/DHASH_NG modes separate multi-material objects before merging so each
         # resulting object carries a single material for material scanning.
-        if self._texture_mode in ('SLOT', 'HASH_NG'):
+        if self._texture_mode in ('SLOT', 'HASH_NG', 'DHASH_NG'):
             self._separate_objects_by_material()
 
     def _separate_objects_by_material(self):
@@ -267,7 +268,7 @@ class ObjectMergerWWMI(ObjectMerger):
         self.fill_missing_data(objects)
 
     def pre_join_objects(self):
-        if self._texture_mode in ('SLOT', 'HASH_NG'):
+        if self._texture_mode in ('SLOT', 'HASH_NG', 'DHASH_NG'):
             self._collect_slot_material_info()
 
     def _collect_slot_material_info(self):
@@ -423,6 +424,7 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'dds_export_name': switch['input_dds'][0],
                                     'resource_name': switch['identifier'],
                                     'hash': slot_data_entry.get('hash', ''),
+                                    'dhash': slot_data_entry.get('dhash', ''),
                                     'width': 0,
                                     'height': 0,
                                 })
@@ -493,6 +495,7 @@ class ObjectMergerWWMI(ObjectMerger):
                                 'dds_export_name': dds_export_name,
                                 'resource_name': resource_name,
                                 'hash': slot_data_entry.get('hash', ''),
+                                'dhash': slot_data_entry.get('dhash', ''),
                                 'width': slot_data_entry.get('width', 0),
                                 'height': slot_data_entry.get('height', 0),
                             }
@@ -505,6 +508,7 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'dds_export_name': dds_export_name,
                                     'resource_name': resource_name,
                                     'hash': slot_data_entry.get('hash', ''),
+                                    'dhash': slot_data_entry.get('dhash', ''),
                                     'width': slot_data_entry.get('width', 0),
                                     'height': slot_data_entry.get('height', 0),
                                 }
@@ -765,9 +769,9 @@ class ModExporter:
     def build_merged_object(self):
         start_time = time.time()
         
-        # Read ShaderTextureUsage*.json files for SLOT/HASH_NG modes
+        # Read ShaderTextureUsage*.json files for SLOT/HASH_NG/DHASH_NG modes
         shader_texture_usage = None
-        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'HASH_NG'):
+        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'HASH_NG', 'DHASH_NG'):
             shader_texture_usage = self._load_and_merge_shader_texture_usage()
         self._shader_texture_usage = shader_texture_usage
 
@@ -792,11 +796,20 @@ class ModExporter:
         self.merged_object = object_merger.merged_object
 
         # Collect slot_textures and slot_warnings from object_merger
-        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'HASH_NG'):
+        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'HASH_NG', 'DHASH_NG'):
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
             self._slot_warnings = getattr(object_merger, '_slot_warnings', [])
             self._hash_ng_overrides = getattr(object_merger, '_hash_ng_overrides', [])
             self._menu_switches = getattr(object_merger, '_menu_switches', [])
+            # "Not Origin" (dHash mode): drop textures loaded from the Object Sources
+            # folder so they are neither exported nor written into the ini
+            if self.cfg.texture_mode == 'DHASH_NG' and self.cfg.not_origin:
+                before = len(self.slot_textures)
+                self.slot_textures = [t for t in self.slot_textures
+                                      if not self._is_origin_texture(t.get('image'))]
+                if before != len(self.slot_textures):
+                    print(f'"Not Origin": skipped {before - len(self.slot_textures)} '
+                          f'texture(s) from the Object Sources folder')
             
         print(f'Merged object build time: {time.time() - start_time :.3f}s ({self.merged_object.vertex_count} vertices, {self.merged_object.index_count} indices)')
 
@@ -894,10 +907,11 @@ class ModExporter:
             comment_code=self.cfg.comment_ini,
             skeleton_scale=self.cfg.skeleton_scale,
             unrestricted_custom_shape_keys=self.cfg.unrestricted_custom_shape_keys,
-            slot_textures=self.slot_textures if self.cfg.texture_mode == 'SLOT' else None,
+            slot_textures=self.slot_textures if self.cfg.texture_mode in ('SLOT', 'DHASH_NG') else None,
             hash_ng_textures=self.build_hash_ng_textures() if self.cfg.texture_mode == 'HASH_NG' else None,
             hash_ng_overrides=self.build_hash_ng_overrides() if self.cfg.texture_mode == 'HASH_NG' else [],
             hash_ng=self.build_hash_ng_data() if self.cfg.texture_mode == 'HASH_NG' else None,
+            dhash_ng=self.build_dhash_ng_data() if self.cfg.texture_mode == 'DHASH_NG' else None,
             slot_groups=self.build_slot_groups_data() if self.cfg.texture_mode == 'SLOT' else None,
             menu_switches=self._menu_switches,
         )
@@ -928,7 +942,7 @@ class ModExporter:
                         continue
                     print(f'Copying {texture_path.name}...')
                     shutil.copy(texture.path, texture_path)
-            if self.cfg.texture_mode == 'SLOT' and self.slot_textures:
+            if self.cfg.texture_mode in ('SLOT', 'DHASH_NG') and self.slot_textures:
                 self.write_slot_textures()
             elif self.cfg.texture_mode == 'HASH_NG' and self.slot_textures:
                 self.write_slot_textures()
@@ -1062,6 +1076,118 @@ class ModExporter:
             for inp in node_group.get('inputs', [])
             if inp.get('hash') and inp.get('resource_name')
         )
+
+    def _is_origin_texture(self, image):
+        """Return True if the image was loaded from the Object Sources folder
+        (i.e. it is an original game texture referenced by ShaderTextureUsage.json).
+
+        Mirrors the origin check in write_slot_textures: unpacked images whose
+        file lives under object_source_folder count as origin textures; packed
+        images and user-assigned external images do not."""
+        if image is None or image.packed_file is not None:
+            return False
+        import bpy
+        try:
+            filepath = bpy.path.abspath(image.filepath)
+            if not filepath:
+                return False
+            Path(filepath).relative_to(self.object_source_folder)
+            return True
+        except (ValueError, TypeError):
+            return False
+
+    def build_dhash_ng_data(self):
+        """Build data for DHASH_NG (dHash NodeGroup) mode.
+
+        Textures are matched by content dhash via the new XXMI kernel slot scan:
+        before each material group's draw calls the mod snapshots the current ps-t
+        textures (built-in SnapshotInitialTextures command), binds filter sections
+        via ``ps-t[FilterX] = ref ResourceX`` (the kernel scans PS texture slots and
+        binds the replacement where slot content dhash matches ``match_dhash``),
+        draws the group, then restores the snapshot (built-in RestoreInitialTextures).
+        Unlike HASH_NG this is independent of slot indexes and draw ordering, so it
+        works with slot layouts that differ between draw calls.
+
+        Returns a dict with:
+          draw_groups: {component_idx: [{'group_idx', 'textures': [{'filter_name',
+                        'resource_name', 'dhash', 'format'}], 'objects': [...]}]}
+          filters: deduped filter list for [FilterTextureX] sections
+        """
+        draw_groups = {}
+        # filter sections deduped by section name; the same resource may be wired
+        # into slots with different content dhash, in that case a unique section
+        # name suffix is generated for each distinct (resource, dhash) pair
+        filters = {}
+        used_filter_names = set()
+
+        for component_idx, component in enumerate(self.merged_object.components):
+            groups = []
+            group_of_signature = {}
+            for obj in component.objects:
+                signature = self._material_texture_signature(obj.material)
+                if signature not in group_of_signature:
+                    group_of_signature[signature] = len(groups)
+                    groups.append({'group_idx': len(groups), 'textures': [], 'objects': []})
+                groups[group_of_signature[signature]]['objects'].append(obj)
+
+            for group in groups:
+                textures = []
+                seen_resources = set()
+                for obj in group['objects']:
+                    if obj.material is None:
+                        continue
+                    for node_group in obj.material.get('node_groups', []):
+                        for inp in node_group.get('inputs', []):
+                            resource_name = inp.get('resource_name')
+                            dhash = inp.get('dhash', '')
+                            # "Not Origin": skip original game textures entirely
+                            if self.cfg.not_origin and self._is_origin_texture(inp.get('image')):
+                                continue
+                            if not resource_name or not dhash:
+                                if resource_name and not dhash:
+                                    print(f"Warning: no dhash for '{resource_name}' "
+                                          f"(Component {component_idx}), its slot scan binding will be skipped. "
+                                          f"Regenerate ShaderTextureUsage.json with dhash support.")
+                                continue
+                            if resource_name in seen_resources:
+                                continue
+                            seen_resources.add(resource_name)
+                            format_str = inp['format'].name if inp.get('format') is not None else None
+                            # Resolve unique filter section name for (resource, dhash) pair
+                            filter_name = f'FilterTexture{resource_name}'
+                            if filter_name in used_filter_names:
+                                existing = filters.get(filter_name)
+                                if existing and existing['dhash'] == dhash and existing['format'] == format_str:
+                                    pass  # identical filter, reuse
+                                else:
+                                    suffix = 2
+                                    while f'{filter_name}_{suffix}' in used_filter_names:
+                                        suffix += 1
+                                    filter_name = f'{filter_name}_{suffix}'
+                            used_filter_names.add(filter_name)
+                            if filter_name not in filters:
+                                filters[filter_name] = {
+                                    'filter_name': filter_name,
+                                    'resource_name': resource_name,
+                                    'dhash': dhash,
+                                    'format': format_str,
+                                }
+                            textures.append({
+                                'filter_name': filter_name,
+                                'resource_name': resource_name,
+                                'dhash': dhash,
+                            })
+                group['textures'] = textures
+
+            draw_groups[component_idx] = [
+                {'group_idx': group['group_idx'], 'textures': group['textures'], 'objects': group['objects']}
+                for group in groups
+            ]
+
+        return {
+            'draw_groups': draw_groups,
+            'filters': list(filters.values()),
+        }
 
     def build_slot_groups_data(self):
         """Build grouped draw data for SLOT mode.

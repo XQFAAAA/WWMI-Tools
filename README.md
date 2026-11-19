@@ -14,9 +14,9 @@
 
 | 环节 | xqfa 分支新增内容 |
 | --- | --- |
-| 帧提取 | 导出 `ShaderTextureUsage.json`；texdiag 读取贴图格式与尺寸 |
+| 帧提取 | 导出 `ShaderTextureUsage.json`（含 `dhash` 内容哈希）；texdiag 读取贴图格式与尺寸 |
 | 对象导入 | 依据 `ShaderTextureUsage.json` 自动创建材质与节点组，并按 `D / N / FTM / RGID / HN` 角色自动连线 |
-| 导出·纹理 | 新增 `Slot` 与 `Path(Hash)` 两种纹理模式；`Slot Complex`、`Hash Complex`、`Max PS-T`；`Export Textures` 自动转 DDS |
+| 导出·纹理 | 新增 `Slot (NodeGroup)`、`Hash (NodeGroup)`、`dHash (NodeGroup)` 三种纹理模式；`Max PS-T`、`Not Origin`；`Export Textures` 自动转 DDS |
 | 导出·骨架 | 新增 `Merged Instance` 骨架与 `Instance Count`；16-bit Blend Buffer；最多 1024 根骨骼，无需额外 shader |
 | 导出·切线 | 新增 `Tangent` 来源选择：`Default` / `Active UV` / `Object Sources` 自动反推 |
 | 导出·组织 | 新增 `Component By Collection` 与 `Add Collections` 一键建子集合 |
@@ -25,9 +25,9 @@
 
 ### 默认值差异
 
-- 导出纹理模式默认 `Slot`，骨架默认 `Merged Instance`
+- 导出纹理模式默认 `Slot (NodeGroup)`，骨架默认 `Merged Instance`
 - `Mirror Mesh`、`Export Textures` 默认开启
-- `Skip Small`、`Skip .jpg`、`Skip Known Cubemaps`、`Skip Empty Vertex Groups`、`Add Missing Vertex Groups`、`Fill Missing Mesh Data` 默认关闭
+- `Copy Textures`、`Skip Small`、`Skip .jpg`、`Skip Known Cubemaps`、`Skip Empty Vertex Groups`、`Add Missing Vertex Groups`、`Fill Missing Mesh Data` 默认关闭
 
 ---
 
@@ -38,14 +38,14 @@
 每次提取都会在对象目录额外写出 `ShaderTextureUsage.json`，按以下层级记录“某个 Component 的某个 VS/PS 组合在各 `ps-t` 槽位用了哪张贴图”：
 
 ```
-Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, format, width, height}
+Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, dhash, format, width, height}
 ```
 
 导入时用它生成材质节点组，导出时用它判定槽位格式、贴图角色与 DDS 目标格式。
 
 ### 贴图元数据
 
-提取阶段通过内置 `texdiag.exe` 读取每张贴图的 **DXGI 格式、宽、高**，写入 `ShaderTextureUsage.json`。这些信息是后续槽位格式判断、贴图角色识别和 DDS 转换格式的依据。
+提取阶段通过内置 `texdiag.exe` 读取每张贴图的 **DXGI 格式、宽、高**，写入 `ShaderTextureUsage.json`。同时从 FrameAnalysis `log.txt` 的 `PSSetShaderResources` 明细行解析每张绑定贴图的 **`dhash`**（3DMigoto 基于贴图内容计算的 64 位重复检测哈希，同一内容的贴图跨 dump 稳定）。这些信息是后续槽位格式判断、贴图角色识别、DDS 转换格式和 dHash 模式内容匹配的依据。
 
 ---
 
@@ -74,17 +74,18 @@ Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, format, width
 | 模式 | 说明 |
 | --- | --- |
 | `Hash` | 上游原有方式，按贴图 hash 覆盖 |
-| `Slot` | 读取每个物体的材质节点组，按 `ps-tX->format` 条件在绘制前替换槽位贴图（默认模式） |
-| `Path(Hash)` | 仍按 hash 触发覆盖，但 `ResourceTexture` 使用导出的文件名，并写入 `TextureOverrideTexture` 段 |
+| `Slot (NodeGroup)` | 读取每个物体的材质节点组，按 `ps-tX->format` 条件在绘制前替换槽位贴图（默认模式） |
+| `Hash (NodeGroup)` | 仍按 hash 触发覆盖，但 `ResourceTexture` 使用导出的文件名，并写入 `TextureOverrideTexture` 段 |
+| `dHash (NodeGroup)` | 按贴图内容 `dhash` 匹配槽位：内核槽位扫描 + `match_dhash` 过滤节，不依赖槽位号与绘制顺序（需新版 XXMI 内核） |
 
-#### Slot 模式
+#### Slot (NodeGroup) 模式
 
 - 每个物体单独绘制，绘制前按节点组的 `ps-tX->format == <DXGI 枚举>` 组合判断并替换对应槽位
 - 贴图按格式精确匹配，不依赖 `filter_index` 浮点值
 - `ps-t` 的 alpha 通道不参与导出
 - 依赖 `ShaderTextureUsage.json`；请勿修改节点组名称
 
-**Slot Complex**：导出前先按材质把物体拆成一个材质一个物体再合并，使同一 Component 内不同材质能各自使用不同贴图。
+- 导出前自动按材质把物体拆成一个材质一个物体再合并，同一 Component 内不同材质可各自使用不同贴图
 
 **槽位稳定性建议**：
 
@@ -92,11 +93,20 @@ Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, format, width
 2. 注意同角色可能存在多个近似着色器（如出场瞬间与常态），个别槽位绑定的贴图不同
 3. 不同角色形态的槽位往往不同，不能跨形态复用同一套槽位判断
 
-#### Path(Hash) 模式
+#### Hash (NodeGroup) 模式
 
 - 为每个贴图 hash 生成 `[TextureOverrideTexture]`，并生成对应的 `[ResourceTexture]` 指向实际导出文件
-- **Hash Complex**：同一 hash 被多个物体复用时，3DMigoto 只会触发一次覆盖；该选项会按材质分组，在每组绘制前用 `$texture_componentN_count` 选择正确贴图，绘制后恢复原贴图
+- 同一 hash 被多个物体复用时，3DMigoto 只会触发一次覆盖；导出会自动按材质分组，在每组绘制前用 `$texture_componentN_count` 选择正确贴图，绘制后恢复原贴图
 - **Max PS-T**：控制模板中 `ps-t` 的最大编号（默认 `11`，即最多到 `ps-t11`），影响触发、备份与恢复贴图的相关 CommandList
+
+#### dHash (NodeGroup) 模式
+
+- 依赖 `ShaderTextureUsage.json` 中的 `dhash` 字段（本分支提取流程自动生成；旧 dump 需重新提取）
+- 需要支持槽位扫描的新版 XXMI 内核（`SnapshotInitialTextures` / `RestoreInitialTextures` 为内置命令，旧内核会报未知命令）
+- 每个 Component 绘制前执行一次 `run = SnapshotInitialTextures` 快照当前 `ps-t` 贴图；随后每个材质组绑定各自的 `ps-t[FilterTextureXxx] = ref ResourceTextureXxx`，内核会扫描全部 PS 槽位，把槽位内容 `dhash` 与 `match_dhash` 一致（可叠加 `match_format` 格式校验）的槽位替换为对应资源，绘制后 `pre run = RestoreInitialTextures` 还原供下一组匹配
+- 生成的 `[FilterTextureXxx]` 节（`match_dhash` / `match_format`）位于 `[ResourceTextureXxx]` 节之前
+- 匹配只看贴图内容，不受槽位编号、槽位组合差异和绘制顺序影响，也不需要 `Max PS-T`；同一贴图资源被绑定到内容不同的槽位时，会自动生成带后缀的独立 Filter 节
+- **Not Origin**：开启后源文件夹（Object Sources）中的原始游戏贴图既不导出 DDS，也不写入 ini 的 Filter/Resource 节，仅保留用户自定义替换贴图
 
 #### Export Textures 与 Copy Textures
 
@@ -179,7 +189,7 @@ GUI/
 - 提取时按“形态键链路起点 hash 与模型 VB 匹配”归属链路，避免同帧多条形态键链路互相干扰
 - 日志解析改为先按 `call_id` 分组再批量处理，减少逐行状态跟踪的开销
 - 导出贴图名称做非 ASCII 转换与去重，支持中文/特殊字符贴图名
-- 修正多处分组与节点组条件判断、路径模式重复覆盖与命名冲突问题
+- 修正多处分组与节点组条件判断、Hash (NodeGroup) 模式重复覆盖与命名冲突问题
 - 修复应用修改器导出含形态键物体时，因 `show_only_shape_key` 导致形态键偏移全部归零的问题
 - 统一模板中的槽位覆盖命名与备份/恢复逻辑
 
@@ -188,7 +198,8 @@ GUI/
 ## 5. 使用注意
 
 - **不要重命名材质节点组**：导出要靠名称去 `ShaderTextureUsage.json` 查找
-- **Slot / Path 模式需要 `ShaderTextureUsage.json`**：请使用本分支的提取流程生成，或确保旧数据补齐该文件
+- **Slot / dHash 模式需要 `ShaderTextureUsage.json`**：请使用本分支的提取流程生成，或确保旧数据补齐该文件；dHash 模式还要求其中含 `dhash` 字段
+- **dHash 模式需要新版 XXMI 内核**：`SnapshotInitialTextures` / `RestoreInitialTextures` / `match_dhash` / `ps-t[Filter]` 槽位扫描均为新内核功能，旧版 WWMI/XXMI 无法识别
 - 槽位判断依赖 DXGI 格式。多数 DDS 使用对应 TYPELESS 格式，少数（如 `R8`）例外；若遇到特殊格式导致无法匹配，可提 issue 补充
 - `Merged Instance` 的 Instance Count 应与实际同屏数量匹配：过小可能超出池容量，过大只会增加状态变量
 - Blender 4.2 因自定义拆分法线回归问题不受支持

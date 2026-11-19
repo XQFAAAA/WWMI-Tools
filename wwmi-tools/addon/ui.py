@@ -157,8 +157,11 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
         if not cfg.partial_export:
 
             if cfg.show_branch_features:
-                if cfg.texture_mode == 'SLOT':
-                    box.row().prop(cfg, 'export_textures')
+                if cfg.texture_mode in ('SLOT', 'DHASH_NG'):
+                    row = box.row()
+                    row.prop(cfg, 'export_textures')
+                    if cfg.texture_mode == 'DHASH_NG':
+                        row.prop(cfg, 'not_origin')
                 elif cfg.texture_mode == 'HASH_NG':
                     box.row().prop(cfg, 'export_textures')
                     box.row().prop(cfg, 'max_ps_t')

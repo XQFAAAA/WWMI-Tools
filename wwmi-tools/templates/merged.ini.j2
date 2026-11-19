@@ -434,6 +434,7 @@ endif
 {%- for component in extracted_object.components %}
 {%- set component_index = loop.index0 %}
 {%- set is_hash_ng = cfg.texture_mode == 'HASH_NG' and hash_ng and merged_object.components[loop.index0].objects | selectattr('material') | list | length > 0 %}
+{%- set is_dhash_ng = cfg.texture_mode == 'DHASH_NG' and dhash_ng and merged_object.components[loop.index0].objects | selectattr('material') | list | length > 0 %}
 
 {{note("Override draw calls for Component %d" | format(loop.index0))}}
 [TextureOverrideComponent{{ loop.index0 }}]
@@ -532,6 +533,45 @@ if $mod_enabled
         run = CommandListRestoreTexture
         {%- endfor %}
         $texture_component{{ component_index }}_count = -1
+        {%- else %}
+        {{note("Trigger by-hash resource overrides")}}
+        run = CommandListTriggerResourceOverrides
+        {{note("Do by-slot resource overrides")}}
+        run = CommandListOverrideSharedResources
+        {%- for obj in merged_object.components[loop.index0].objects %}
+        ; Draw {{ obj.name }}
+        {%- if cfg.use_ini_toggles %}
+        if {{ formatter.format_ini_drawvar(obj.name) }}
+			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+        endif
+        {%- else %}
+		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+        {%- endif %}
+        {%- endfor %}
+        {%- endif %}
+        {%- elif cfg.texture_mode == 'DHASH_NG' %}
+        {%- if is_dhash_ng %}
+        {{note("Do by-slot resource overrides")}}
+        run = CommandListOverrideSharedResources
+        {{note("Snapshot current textures once; each group re-binds by content dhash and restores after drawing")}}
+        run = SnapshotInitialTextures
+        {%- for group in dhash_ng.draw_groups[component_index] %}
+        {%- for tex in group.textures %}
+        {{note("Slot scan: bind texture replacement where slot content dhash matches")}}
+        ps-t[{{ tex.filter_name }}] = ref ResourceTexture{{ tex.resource_name }}
+        {%- endfor %}
+        {%- for obj in group.objects %}
+        {%- if cfg.use_ini_toggles %}
+        if {{ formatter.format_ini_drawvar(obj.name) }}
+			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+        endif
+        {%- else %}
+		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
+        {%- endif %}
+        {%- endfor %}
+        {{note("Restore snapshot textures so the next group matches on original content")}}
+        pre run = RestoreInitialTextures
+        {%- endfor %}
         {%- else %}
         {{note("Trigger by-hash resource overrides")}}
         run = CommandListTriggerResourceOverrides
@@ -649,6 +689,23 @@ endif
 
 [ResourceTexture{{ texture.resource_name }}]
 filename = Textures/{{ texture.filename }}
+{%- endfor %}
+{%- endif %}
+
+{%- if cfg.texture_mode == 'DHASH_NG' and dhash_ng %}
+{{note("Filter sections: the kernel slot-scans ps-tN and binds the matching slot where content dhash matches")}}
+{%- for filter in dhash_ng.filters %}
+
+[{{ filter.filter_name }}]
+match_dhash = {{ filter.dhash }}
+{%- if filter.format %}
+match_format = {{ filter.format }}
+{%- endif %}
+{%- endfor %}
+{%- for texture in slot_textures %}
+
+[ResourceTexture{{ texture.resource_name }}]
+filename = Textures/{{ texture.dds_export_name }}
 {%- endfor %}
 {%- endif %}
 
