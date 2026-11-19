@@ -1114,10 +1114,15 @@ class ModExporter:
           filters: deduped filter list for [FilterTextureX] sections
         """
         draw_groups = {}
-        # filter sections deduped by section name; the same resource may be wired
-        # into slots with different content dhash, in that case a unique section
-        # name suffix is generated for each distinct (resource, dhash) pair
+        # Filter sections are identified by the REPLACED SLOT CONTENT (origin
+        # dhash + format), not by the replacement resource: several materials
+        # may replace slots holding the same original texture with different
+        # replacements, and they must share one [FilterTextureXxx] section
+        # (each binding line pairs the shared filter with its own resource).
+        # If the same resource is wired into slots with different origin
+        # content, its name collides and a suffixed section name is generated.
         filters = {}
+        filter_keys = {}
         used_filter_names = set()
 
         for component_idx, component in enumerate(self.merged_object.components):
@@ -1132,7 +1137,7 @@ class ModExporter:
 
             for group in groups:
                 textures = []
-                seen_resources = set()
+                seen_filters = set()
                 for obj in group['objects']:
                     if obj.material is None:
                         continue
@@ -1149,29 +1154,31 @@ class ModExporter:
                                           f"(Component {component_idx}), its slot scan binding will be skipped. "
                                           f"Regenerate ShaderTextureUsage.json with dhash support.")
                                 continue
-                            if resource_name in seen_resources:
-                                continue
-                            seen_resources.add(resource_name)
                             format_str = inp['format'].name if inp.get('format') is not None else None
-                            # Resolve unique filter section name for (resource, dhash) pair
-                            filter_name = f'FilterTexture{resource_name}'
-                            if filter_name in used_filter_names:
-                                existing = filters.get(filter_name)
-                                if existing and existing['dhash'] == dhash and existing['format'] == format_str:
-                                    pass  # identical filter, reuse
-                                else:
+                            # Resolve the filter section for this replaced slot content;
+                            # dedupe by filter (i.e. by slot content), not by resource:
+                            # one resource may replace slots with different origin content
+                            key = (dhash, format_str)
+                            filter_name = filter_keys.get(key)
+                            if filter_name is not None and filter_name in seen_filters:
+                                continue
+                            if filter_name is None:
+                                base = f'FilterTexture{resource_name}'
+                                filter_name = base
+                                if filter_name in used_filter_names:
+                                    # Name already used by a different slot content
                                     suffix = 2
-                                    while f'{filter_name}_{suffix}' in used_filter_names:
+                                    while f'{base}_{suffix}' in used_filter_names:
                                         suffix += 1
-                                    filter_name = f'{filter_name}_{suffix}'
-                            used_filter_names.add(filter_name)
-                            if filter_name not in filters:
+                                    filter_name = f'{base}_{suffix}'
+                                used_filter_names.add(filter_name)
+                                filter_keys[key] = filter_name
                                 filters[filter_name] = {
                                     'filter_name': filter_name,
-                                    'resource_name': resource_name,
                                     'dhash': dhash,
                                     'format': format_str,
                                 }
+                            seen_filters.add(filter_name)
                             textures.append({
                                 'filter_name': filter_name,
                                 'resource_name': resource_name,

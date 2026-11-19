@@ -3,8 +3,6 @@
 基于 [SpectrumQT/WWMI-Tools](https://github.com/SpectrumQT/WWMI-Tools) 的增强分支。
 上游的 **Extract Objects From Dump → Import Object → Export Mod** 工作流保持不变，本分支主要围绕**纹理解析与绑定、多实例骨架、导入材质生成、导出组织方式、游戏内 GUI** 做扩展。
 
-- 当前版本：`1.8.0.21`
-- 依赖：Blender **4.5+**（4.2 不支持）、WWMI **1.1.0+**
 - 本分支持续合入上游更新，新增功能集中在导出面板的 **Branch Options / 分支选项** 抽屉
 - 上游功能与用法仍可参考 [Modder Guide](https://github.com/SpectrumQT/WWMI-TOOLS/blob/main/guides/modder_guide.md)
 
@@ -103,9 +101,10 @@ Component 0 → vs_hash → ps_hash → ps-tN → {filename, hash, dhash, format
 
 - 依赖 `ShaderTextureUsage.json` 中的 `dhash` 字段（本分支提取流程自动生成；旧 dump 需重新提取）
 - 需要支持槽位扫描的新版 XXMI 内核（`SnapshotInitialTextures` / `RestoreInitialTextures` 为内置命令，旧内核会报未知命令）
-- 每个 Component 绘制前执行一次 `run = SnapshotInitialTextures` 快照当前 `ps-t` 贴图；随后每个材质组绑定各自的 `ps-t[FilterTextureXxx] = ref ResourceTextureXxx`，内核会扫描全部 PS 槽位，把槽位内容 `dhash` 与 `match_dhash` 一致（可叠加 `match_format` 格式校验）的槽位替换为对应资源，绘制后 `pre run = RestoreInitialTextures` 还原供下一组匹配
+- 每个 Component 绘制前执行一次 `run = SnapshotInitialTextures` 快照当前 `ps-t` 贴图；随后每个材质组绑定各自的 `ps-t[FilterTextureXxx] = ref ResourceTextureXxx`，内核会扫描全部 PS 槽位，把槽位内容 `dhash` 与 `match_dhash` 一致（可叠加 `match_format` 格式校验）的槽位替换为对应资源，绘制后 `run = RestoreInitialTextures` 还原供下一组匹配
 - 生成的 `[FilterTextureXxx]` 节（`match_dhash` / `match_format`）位于 `[ResourceTextureXxx]` 节之前
-- 匹配只看贴图内容，不受槽位编号、槽位组合差异和绘制顺序影响，也不需要 `Max PS-T`；同一贴图资源被绑定到内容不同的槽位时，会自动生成带后缀的独立 Filter 节
+- 匹配只看贴图内容，不受槽位编号、槽位组合差异和绘制顺序影响，也不需要 `Max PS-T`
+- Filter 节按**被替换槽位的原始内容**（`dhash` + format）去重：多个材质把同一张原始贴图替换成不同贴图时共享同一个 `[FilterTextureXxx]` 节，仅绑定行指向各自的 `ResourceTexture`；同一资源被绑定到原始内容不同的槽位时，才会生成带后缀的独立 Filter 节
 - **Not Origin**：开启后源文件夹（Object Sources）中的原始游戏贴图既不导出 DDS，也不写入 ini 的 Filter/Resource 节，仅保留用户自定义替换贴图
 
 #### Export Textures 与 Copy Textures

@@ -570,7 +570,7 @@ if $mod_enabled
         {%- endif %}
         {%- endfor %}
         {{note("Restore snapshot textures so the next group matches on original content")}}
-        pre run = RestoreInitialTextures
+        run = RestoreInitialTextures
         {%- endfor %}
         {%- else %}
         {{note("Trigger by-hash resource overrides")}}
