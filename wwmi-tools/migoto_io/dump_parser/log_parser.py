@@ -30,6 +30,8 @@ class FrameDumpCall:
         self.parameters = {}
         # 该 call 中由 PSSetShaderResources 显式绑定的 PS 贴图槽位集合
         self.ps_texture_slots = set()
+        # 该 call 中 PS 贴图槽位 -> dhash（3DMigoto 基于贴图内容计算的重复检测 hash）
+        self.ps_texture_dhash = {}
         self.patterns = {
             CallParameters.Dispatch: (
                 re.compile(r'^Dispatch\(ThreadGroupCountX:(\d+), ThreadGroupCountY:(\d+), ThreadGroupCountZ:(\d+)\)'),
@@ -42,6 +44,12 @@ class FrameDumpCall:
         }
         # PSSetShaderResources(StartSlot:N, NumViews:K, ...) 允许出现多次
         self.ps_sr_pattern = re.compile(r'PSSetShaderResources\(StartSlot:(\d+), NumViews:(\d+),')
+        # SRV 绑定头行（区分着色器阶段）：如 PSSetShaderResources(StartSlot:0, ...
+        self.srv_stage_pattern = re.compile(r'([VPGHDCS])SSetShaderResources\(StartSlot:(\d+)')
+        # SRV 绑定明细行：`0: view=0x... resource=0x... hash=... [orig_hash=...] [dhash=...]`
+        self.srv_detail_pattern = re.compile(
+            r'(\d+): view=\S+ resource=\S+ hash=([0-9a-f]+)(?: orig_hash=([0-9a-f]+))?(?: dhash=([0-9a-f]+))?'
+        )
 
     def import_data(self, raw_log_entry):
         raw_log_entry = ' '.join(raw_log_entry)
@@ -60,6 +68,24 @@ class FrameDumpCall:
             count = int(count_str)
             for slot in range(start, start + count):
                 self.ps_texture_slots.add(slot)
+
+        # 解析 SRV 绑定明细行，按头行确定的着色器阶段归属，记录 PS 贴图槽位的 dhash
+        # 明细行中的槽位号即绝对槽位（如 StartSlot:6 对应 `6: view=...`）
+        matches = []
+        for m in self.srv_stage_pattern.finditer(raw_log_entry):
+            matches.append((m.start(), 'header', m))
+        for m in self.srv_detail_pattern.finditer(raw_log_entry):
+            matches.append((m.start(), 'detail', m))
+        matches.sort(key=lambda x: x[0])
+
+        current_stage = None
+        for _, kind, m in matches:
+            if kind == 'header':
+                current_stage = m.group(1)
+            elif current_stage == 'P':
+                dhash = m.group(4)
+                if dhash:
+                    self.ps_texture_dhash[int(m.group(1))] = dhash
 
 
 class FrameDumpLog:

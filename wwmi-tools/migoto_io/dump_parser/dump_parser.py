@@ -43,3 +43,4 @@ class Dump:
             if logged_call is not None:
                 call.parameters = logged_call.parameters
                 call.ps_texture_slots = logged_call.ps_texture_slots
+                call.ps_texture_dhash = dict(logged_call.ps_texture_dhash)

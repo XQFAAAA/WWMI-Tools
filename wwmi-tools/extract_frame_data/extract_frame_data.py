@@ -295,10 +295,18 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
                 if texture.hash not in textures:
                     textures[texture.hash] = {
                         'path': texture.path,
-                        'components': []
+                        'components': [],
+                        'dhash': ''
                     }
 
                 textures[texture.hash]['components'].append(str(component_id))
+
+                # dhash 来自 log.txt 中 PSSetShaderResources 明细行（贴图内容级 hash，
+                # 同一内容的贴图跨 dump 稳定，可用于 dump 与源贴图之间的内容匹配）
+                if texture.slot_type == SlotType.Texture and texture.slot_shader_type == ShaderType.Pixel:
+                    dhash = texture.call.ps_texture_dhash.get(texture.slot_id, '') if texture.call is not None else ''
+                    if dhash and not textures[texture.hash]['dhash']:
+                        textures[texture.hash]['dhash'] = dhash
 
                 if texture.get_slot() not in texture_usage[component_filename]:
                     texture_usage[component_filename][texture.get_slot()] = []
@@ -334,6 +342,7 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
             entry = {
                 'filename': filename,
                 'hash': texture_hash,
+                'dhash': texture.get('dhash', ''),
                 'format': info.get('format', ''),
                 'width': info.get('width', 0),
                 'height': info.get('height', 0),
@@ -351,6 +360,7 @@ def write_objects(output_directory, objects: Dict[str, ObjectData], allow_missin
                             {
                                 'filename': '',
                                 'hash': hash_val,
+                                'dhash': '',
                                 'format': '',
                                 'width': 0,
                                 'height': 0,
