@@ -159,10 +159,8 @@ class WWMI_TOOLS_PT_SIDEBAR(bpy.types.Panel):
             if cfg.show_branch_features:
                 if cfg.texture_mode == 'SLOT':
                     box.row().prop(cfg, 'export_textures')
-                    box.row().prop(cfg, 'slot_complex')
-                elif cfg.texture_mode == 'PATH':
+                elif cfg.texture_mode == 'HASH_NG':
                     box.row().prop(cfg, 'export_textures')
-                    box.row().prop(cfg, 'hash_complex')
                     box.row().prop(cfg, 'max_ps_t')
 
                 row = add_row_with_error_handler(box, cfg, 'component_from_collections')

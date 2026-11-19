@@ -46,9 +46,9 @@ class IniMaker:
     unrestricted_custom_shape_keys: bool
     skeleton_scale: float
     slot_textures: list = None
-    path_textures: list = None
-    path_hash_textures: list = None
-    path_complex: dict = None
+    hash_ng_textures: list = None
+    hash_ng_overrides: list = None
+    hash_ng: dict = None
     slot_groups: dict = None
     menu_switches: list = field(default_factory=list)
     formatter: TextFormatter = TextFormatter()

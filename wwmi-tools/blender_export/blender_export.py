@@ -65,8 +65,6 @@ TANGENT_UV_LAYER_NAME = 'TANGENT_UV'
 class ObjectMergerWWMI(ObjectMerger):
     def __init__(self, **kwargs):
         self._texture_mode = kwargs.pop('texture_mode', 'HASH')
-        self._slot_complex = kwargs.pop('slot_complex', False)
-        self._hash_complex = kwargs.pop('hash_complex', False)
         self._shader_texture_usage = kwargs.pop('shader_texture_usage', None)
         # Menu Switch (菜单切换) nodes collected from material node groups
         self._menu_switches = []
@@ -225,9 +223,9 @@ class ObjectMergerWWMI(ObjectMerger):
 
     def finalize_temp_objects_geometry(self):
         super().finalize_temp_objects_geometry()
-        # Complex mode separates multi-material objects before merging so each
-        # resulting object carries a single material for slot/path material scanning.
-        if self._slot_complex or self._hash_complex:
+        # SLOT/HASH_NG modes separate multi-material objects before merging so each
+        # resulting object carries a single material for material scanning.
+        if self._texture_mode in ('SLOT', 'HASH_NG'):
             self._separate_objects_by_material()
 
     def _separate_objects_by_material(self):
@@ -269,7 +267,7 @@ class ObjectMergerWWMI(ObjectMerger):
         self.fill_missing_data(objects)
 
     def pre_join_objects(self):
-        if self._texture_mode in ('SLOT', 'PATH'):
+        if self._texture_mode in ('SLOT', 'HASH_NG'):
             self._collect_slot_material_info()
 
     def _collect_slot_material_info(self):
@@ -278,25 +276,20 @@ class ObjectMergerWWMI(ObjectMerger):
             return
 
         shader_texture_usage = self._shader_texture_usage
-        # Hash Complex (PATH mode) reads materials of all objects per component,
-        # same as Slot Complex does for SLOT mode
-        is_simple = not (self._slot_complex or (self._texture_mode == 'PATH' and self._hash_complex))
 
         # Regex for node group name matching: Cn-ps=xxx
         node_group_pattern = re.compile(r'C(\d+)-ps=([0-9a-fA-F]+)')
 
         # Collect all unique images across all components for slot_textures
         all_images = {}  # key: dds_export_name, value: dict with image info
-        # One entry per texture hash for path mode: a single image wired into multiple
+        # One entry per texture hash for HASH_NG mode: a single image wired into multiple
         # node groups maps to several hashes, each of which needs its own override.
-        path_hash_textures = {}  # key: hash, value: dict with image info
+        hash_ng_overrides = {}  # key: hash, value: dict with image info
 
         # Warnings to show after export
         self._slot_warnings = []
 
         for component_index, component in enumerate(self.components):
-            component_material_collected = False  # For simple mode: only collect first material
-
             for temp_object in component.objects:
                 obj = temp_object.object
 
@@ -354,7 +347,7 @@ class ObjectMergerWWMI(ObjectMerger):
                         # taken from the object name (or sub-collection name), so renaming
                         # the control object (Component 3 / Component 4) or moving it to
                         # another component collection selects which node group is
-                        # exported - same behavior for slot and path modes.
+                        # exported - same behavior for SLOT and HASH_NG modes.
                         if int(ng_component_index) != int(obj_component_id):
                             continue
 
@@ -433,12 +426,12 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'width': 0,
                                     'height': 0,
                                 })
-                                # Path mode: the slot hash must point at the switch alias
+                                # HASH_NG mode: the slot hash must point at the switch alias
                                 # instead of a single texture, so the texture ListGUI picks
                                 # at runtime is the one bound to this hash.
                                 hash_value = slot_data_entry.get('hash', '')
-                                if hash_value and hash_value not in path_hash_textures:
-                                    path_hash_textures[hash_value] = {
+                                if hash_value and hash_value not in hash_ng_overrides:
+                                    hash_ng_overrides[hash_value] = {
                                         'dds_export_name': switch['input_dds'][0],
                                         'resource_name': switch['identifier'],
                                         'hash': hash_value,
@@ -516,12 +509,12 @@ class ObjectMergerWWMI(ObjectMerger):
                                     'height': slot_data_entry.get('height', 0),
                                 }
 
-                            # Path mode: keep one entry per hash so a single image wired
+                            # HASH_NG mode: keep one entry per hash so a single image wired
                             # into multiple node groups (different hashes) still gets an
                             # override section for every hash, not just the first one.
                             hash_value = slot_data_entry.get('hash', '')
-                            if hash_value and hash_value not in path_hash_textures:
-                                path_hash_textures[hash_value] = {
+                            if hash_value and hash_value not in hash_ng_overrides:
+                                hash_ng_overrides[hash_value] = {
                                     'dds_export_name': dds_export_name,
                                     'resource_name': resource_name,
                                     'hash': hash_value,
@@ -541,25 +534,15 @@ class ObjectMergerWWMI(ObjectMerger):
                                 seen_node_group_keys[ps_value] = len(material_info['node_groups'])
                                 material_info['node_groups'].append(node_group_info)
 
-                # In simple mode, skip if component already has material collected
-                if is_simple and component_material_collected:
-                    continue
-
-                if is_simple:
-                    # Simple mode: attach material to component (only first)
-                    if not component_material_collected and material_info['node_groups']:
-                        component.material = material_info
-                        component_material_collected = True
-                else:
-                    # Complex mode: attach material to temp_object
-                    temp_object.material = material_info
+                # Attach material to temp_object
+                temp_object.material = material_info
 
         # Store slot_textures for later use
         self._slot_textures = list(all_images.values())
-        # Per-hash texture entries for path mode override sections
-        self._path_hash_textures = list(path_hash_textures.values())
+        # Per-hash texture entries for HASH_NG mode override sections
+        self._hash_ng_overrides = list(hash_ng_overrides.values())
 
-        print(f"Slot mode ({'simple' if is_simple else 'complex'}): collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
+        print(f"Slot mode: collected {len(self._slot_textures)} unique textures across {len(self.components)} components")
 
     @staticmethod
     def fill_missing_data(objects):
@@ -616,7 +599,7 @@ class ModExporter:
         self.cfg = cfg
         self.excluded_buffers = excluded_buffers
         self._slot_warnings = []
-        self._path_hash_textures = []
+        self._hash_ng_overrides = []
         self._shader_texture_usage = None
         self._menu_switches = []
 
@@ -782,9 +765,9 @@ class ModExporter:
     def build_merged_object(self):
         start_time = time.time()
         
-        # Read ShaderTextureUsage*.json files for slot/path modes
+        # Read ShaderTextureUsage*.json files for SLOT/HASH_NG modes
         shader_texture_usage = None
-        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'PATH'):
+        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'HASH_NG'):
             shader_texture_usage = self._load_and_merge_shader_texture_usage()
         self._shader_texture_usage = shader_texture_usage
 
@@ -804,17 +787,15 @@ class ModExporter:
             tangent_uv_layer=TANGENT_UV_LAYER_NAME if self.cfg.tangent_source in ('ACTIVE_UV', 'OBJECT_SOURCES') else None,
             tangent_uv_map=self.tangent_uv_map,
             texture_mode=self.cfg.texture_mode,
-            slot_complex=self.cfg.slot_complex,
-            hash_complex=self.cfg.hash_complex,
             shader_texture_usage=shader_texture_usage,
         )
         self.merged_object = object_merger.merged_object
 
         # Collect slot_textures and slot_warnings from object_merger
-        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'PATH'):
+        if not self.cfg.partial_export and self.cfg.texture_mode in ('SLOT', 'HASH_NG'):
             self.slot_textures = getattr(object_merger, '_slot_textures', [])
             self._slot_warnings = getattr(object_merger, '_slot_warnings', [])
-            self._path_hash_textures = getattr(object_merger, '_path_hash_textures', [])
+            self._hash_ng_overrides = getattr(object_merger, '_hash_ng_overrides', [])
             self._menu_switches = getattr(object_merger, '_menu_switches', [])
             
         print(f'Merged object build time: {time.time() - start_time :.3f}s ({self.merged_object.vertex_count} vertices, {self.merged_object.index_count} indices)')
@@ -914,10 +895,10 @@ class ModExporter:
             skeleton_scale=self.cfg.skeleton_scale,
             unrestricted_custom_shape_keys=self.cfg.unrestricted_custom_shape_keys,
             slot_textures=self.slot_textures if self.cfg.texture_mode == 'SLOT' else None,
-            path_textures=self.build_path_textures() if self.cfg.texture_mode == 'PATH' else None,
-            path_hash_textures=self.build_path_hash_textures() if self.cfg.texture_mode == 'PATH' else [],
-            path_complex=self.build_path_complex_data() if (self.cfg.texture_mode == 'PATH' and self.cfg.hash_complex) else None,
-            slot_groups=self.build_slot_complex_data() if self.cfg.slot_complex else None,
+            hash_ng_textures=self.build_hash_ng_textures() if self.cfg.texture_mode == 'HASH_NG' else None,
+            hash_ng_overrides=self.build_hash_ng_overrides() if self.cfg.texture_mode == 'HASH_NG' else [],
+            hash_ng=self.build_hash_ng_data() if self.cfg.texture_mode == 'HASH_NG' else None,
+            slot_groups=self.build_slot_groups_data() if self.cfg.texture_mode == 'SLOT' else None,
             menu_switches=self._menu_switches,
         )
 
@@ -949,7 +930,7 @@ class ModExporter:
                     shutil.copy(texture.path, texture_path)
             if self.cfg.texture_mode == 'SLOT' and self.slot_textures:
                 self.write_slot_textures()
-            elif self.cfg.texture_mode == 'PATH' and self.slot_textures:
+            elif self.cfg.texture_mode == 'HASH_NG' and self.slot_textures:
                 self.write_slot_textures()
             # Write mod logo
             mod_logo_path = resolve_path(self.cfg.mod_logo)
@@ -967,8 +948,8 @@ class ModExporter:
                 
         print(f'Disk write time: {time.time() - start_time :.3f}s')
 
-    def build_path_textures(self):
-        """Build the ResourceTexture section data for PATH mode.
+    def build_hash_ng_textures(self):
+        """Build the ResourceTexture section data for HASH_NG mode.
 
         Textures are collected from node groups, hash info read from
         ShaderTextureUsage.json per slot.
@@ -982,8 +963,8 @@ class ModExporter:
             })
         return result
 
-    def build_path_hash_textures(self):
-        """Build per-hash override sections for simple PATH mode.
+    def build_hash_ng_overrides(self):
+        """Build per-hash override sections for HASH_NG mode.
 
         ``slot_textures`` keeps one entry per image, so a single image wired into
         multiple node groups (one hash per slot) would only keep the first hash.
@@ -992,7 +973,7 @@ class ModExporter:
         texture). Section names are numbered with the loop index, like HASH mode.
         """
         result = []
-        for st in self._path_hash_textures or []:
+        for st in self._hash_ng_overrides or []:
             h = st.get('hash', '')
             if not h:
                 continue
@@ -1003,8 +984,8 @@ class ModExporter:
             })
         return result
 
-    def build_path_complex_data(self):
-        """Build data for PATH mode with Hash Complex enabled.
+    def build_hash_ng_data(self):
+        """Build data for HASH_NG mode.
 
         When multiple objects of the same Component (or across components) share the
         same texture hash, 3DMigoto only fires one override per hash. To pick the
@@ -1071,7 +1052,7 @@ class ModExporter:
         """Return a hashable signature of a material's texture mapping (hash -> resource).
 
         Two materials with the same mapping produce the same overrides and can safely
-        share a draw group in PATH complex mode. Objects without a material use a
+        share a draw group in HASH_NG mode. Objects without a material use a
         distinct None signature so they keep drawing with the original textures."""
         if material is None:
             return None
@@ -1082,8 +1063,8 @@ class ModExporter:
             if inp.get('hash') and inp.get('resource_name')
         )
 
-    def build_slot_complex_data(self):
-        """Build grouped draw data for SLOT mode with Slot Complex enabled.
+    def build_slot_groups_data(self):
+        """Build grouped draw data for SLOT mode.
 
         Objects sharing the same material texture mapping are grouped so the slot
         judgment runs only once per material group instead of once per object.
@@ -1113,7 +1094,7 @@ class ModExporter:
 
         Two materials that render the same slot judgment (same slot and resource
         assignments in the same order) can safely share a draw group in SLOT
-        complex mode. Objects without a material use a distinct None signature."""
+        mode. Objects without a material use a distinct None signature."""
         if material is None:
             return None
         return tuple(
@@ -1133,7 +1114,7 @@ class ModExporter:
                     for inp in ng.get('inputs', []):
                         if inp.get('dds_export_name') == dds_export_name and inp.get('format') is not None:
                             return inp['format'].name
-            # Complex mode: check temp_object.material
+            # Grouped mode: check temp_object.material
             for temp_object in component.objects:
                 if temp_object.material is None:
                     continue

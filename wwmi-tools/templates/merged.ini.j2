@@ -55,8 +55,8 @@ global $merge_status_id = 0
 {%- for component in extracted_object.components %}
 global $merge_status_id_{{ loop.index0 }} = 0
 {%- endfor %}
-{%- if cfg.texture_mode == 'PATH' and cfg.hash_complex and path_complex %}
-{%- for component_idx in path_complex.counters %}
+{%- if cfg.texture_mode == 'HASH_NG' and hash_ng %}
+{%- for component_idx in hash_ng.counters %}
 {{note("Stores current object index of Component %d being drawn to pick the right texture override" | format(component_idx))}}
 global $texture_component{{ component_idx }}_count = -1
 {%- endfor %}
@@ -433,7 +433,7 @@ endif
 
 {%- for component in extracted_object.components %}
 {%- set component_index = loop.index0 %}
-{%- set is_path_complex = cfg.texture_mode == 'PATH' and cfg.hash_complex and path_complex and merged_object.components[loop.index0].objects | selectattr('material') | list | length > 0 %}
+{%- set is_hash_ng = cfg.texture_mode == 'HASH_NG' and hash_ng and merged_object.components[loop.index0].objects | selectattr('material') | list | length > 0 %}
 
 {{note("Override draw calls for Component %d" | format(loop.index0))}}
 [TextureOverrideComponent{{ loop.index0 }}]
@@ -486,7 +486,6 @@ if $mod_enabled
         ; run = CommandListTriggerResourceOverrides
         {{note("Do by-slot resource overrides")}}
         run = CommandListOverrideSharedResources
-        {%- if cfg.slot_complex %}
         {%- for group in slot_groups[component_index] %}
         {%- for node_group in group.node_groups %}
         {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %} 1
@@ -508,34 +507,13 @@ if $mod_enabled
         {%- endif %}
         {%- endfor %}
         {%- endfor %}
-        {%- else %}
-        {%- if merged_object.components[loop.index0].material and merged_object.components[loop.index0].material.node_groups %}
-        {%- for node_group in merged_object.components[loop.index0].material.node_groups %}
-        {% if loop.first %}if{% else %}elif{% endif %}{%- for input in node_group.inputs %}{% if input.format %} {{input.slot}}->format == {{input.format.value}} &&{% endif %}{%- endfor %} 1
-            {%- for input in node_group.inputs %}
-            {{input.slot}} = ref ResourceTexture{{ input.resource_name }}
-            {%- endfor %}
-        {%- endfor %}
-        endif
-        {%- endif %}
-        {%- for obj in merged_object.components[loop.index0].objects %}
-        ; Draw {{ obj.name }}
-        {%- if cfg.use_ini_toggles %}
-        if {{ formatter.format_ini_drawvar(obj.name) }}
-			drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
-        endif
-        {%- else %}
-		drawindexed = {{ obj.index_count }}, {{ obj.index_offset }}, 0
-        {%- endif %}
-        {%- endfor %}
-        {%- endif %}
-        {%- elif cfg.texture_mode == 'PATH' %}
-        {%- if is_path_complex %}
+        {%- elif cfg.texture_mode == 'HASH_NG' %}
+        {%- if is_hash_ng %}
         {{note("Do by-slot resource overrides")}}
         run = CommandListOverrideSharedResources
         {{note("Save original ps-t textures once so they can be restored after each draw call")}}
         run = CommandListBackupTexture
-        {%- for group in path_complex.draw_groups[component_index] %}
+        {%- for group in hash_ng.draw_groups[component_index] %}
         {{note("Pick the right texture override for this material group")}}
         $texture_component{{ component_index }}_count = {{ group.group_idx }}
         {{note("Trigger by-hash resource overrides")}}
@@ -622,7 +600,7 @@ endif
 {%- endfor %}
 {%- endif %}
 
-{%- if cfg.texture_mode == 'PATH' and cfg.hash_complex and path_complex %}
+{%- if cfg.texture_mode == 'HASH_NG' and hash_ng %}
 {%- for slot_idx in range(cfg.max_ps_t + 1) %}
 [ResourceBackup_ps-t{{ slot_idx }}]
 {%- endfor %}
@@ -639,7 +617,7 @@ ResourceBackup_ps-t{{ slot_idx }} = ref ps-t{{ slot_idx }}
 ps-t{{ slot_idx }} = ref ResourceBackup_ps-t{{ slot_idx }}
 {%- endfor %}
 
-{%- for hash, choices in path_complex.hash_groups.items() %}
+{%- for hash, choices in hash_ng.hash_groups.items() %}
 
 [TextureOverrideTexture{{ loop.index0 }}]
 hash = {{ hash }}
@@ -651,13 +629,13 @@ match_priority = 0
 endif
 {%- endfor %}
 
-{%- for texture in path_textures %}
+{%- for texture in hash_ng_textures %}
 
 [ResourceTexture{{ texture.resource_name }}]
 filename = Textures/{{ texture.filename }}
 {%- endfor %}
-{%- elif cfg.texture_mode == 'PATH' %}
-{%- for texture in path_hash_textures %}
+{%- elif cfg.texture_mode == 'HASH_NG' %}
+{%- for texture in hash_ng_overrides %}
 
 [TextureOverrideTexture{{ loop.index0 }}]
 hash = {{ texture.hash }}
@@ -667,7 +645,7 @@ if $object_detected
 endif
 {%- endfor %}
 
-{%- for texture in path_textures %}
+{%- for texture in hash_ng_textures %}
 
 [ResourceTexture{{ texture.resource_name }}]
 filename = Textures/{{ texture.filename }}
