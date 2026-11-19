@@ -191,8 +191,8 @@ class WWMI_Settings(bpy.types.PropertyGroup):
         description="Controls how textures are referenced in exported mod.ini",
         items=[
             ('HASH', 'Hash', 'Reference textures by hash (default 3DMigoto style)'),
-            ('SLOT', 'Slot', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
-            ('PATH', 'Path(Hash)', 'Reference textures by hash\nRequires ShaderTextureUsage.json\n按槽位记录的 hash 匹配纹理'),
+            ('SLOT', 'Slot (NodeGroup)', 'Requires ShaderTextureUsage.json\nReads materials per object for texture slot overrides.\n读取物体的材质信息用于纹理槽位覆盖'),
+            ('PATH', 'Hash (NodeGroup)', 'Reference textures by hash\nRequires ShaderTextureUsage.json\n按槽位记录的 hash 匹配纹理'),
         ],
         default='SLOT',
         update=lambda self, context: setattr(self, 'copy_textures', False) if self.texture_mode == 'SLOT' else None,
@@ -201,13 +201,13 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     slot_complex: BoolProperty(
         name="Slot Complex",
         description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组",
-        default=False,
+        default=True,
     ) # type: ignore
 
     hash_complex: BoolProperty(
         name="Hash Complex",
         description="导出前先按材质分离物体（每个材质一个物体）再合并，读取所有Component序号物体的材质内节点组",
-        default=False,
+        default=True,
     ) # type: ignore
 
     max_ps_t: IntProperty(
@@ -262,7 +262,7 @@ class WWMI_Settings(bpy.types.PropertyGroup):
     copy_textures: BoolProperty(
         name="Copy Textures",
         description="Copy texture files to export folder",
-        default=True,
+        default=False,
         update=lambda self, context: self.on_copy_textures_toggled(context),
     ) # type: ignore
 

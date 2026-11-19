@@ -816,21 +816,6 @@ format = R32G32B32A32_FLOAT
 array = {{ merged_bones_limit * 3 }}
 bind_flags = shader_resource unordered_access
 
-{%- for instance in range(cfg.mod_merged_instance_count) %}
-
-{{note("Merged skeleton storage of instance %d" | format(instance))}}
-[ResourceMergedSkeleton{{ instance }}]
-[ResourceMergedSkeletonRW{{ instance }}]
-type = RWBuffer
-format = R32G32B32A32_FLOAT
-array = {{ merged_bones_limit * 3 }}
-[ResourceExtraMergedSkeleton{{ instance }}]
-[ResourceExtraMergedSkeletonRW{{ instance }}]
-type = RWBuffer
-format = R32G32B32A32_FLOAT
-array = {{ merged_bones_limit * 3 }}
-{%- endfor %}
-
 ; Resources: Buffers -------------------------
 
 {{note("Stores pointer to original vb0")}}
